@@ -360,7 +360,8 @@ $("#ask-form").addEventListener("submit", async (e) => {
 });
 
 (async () => {
-  if (STATIC) demo = await (await fetch(STATIC)).json();
+  // Revalidate on every load (cheap ETag check) so a redeployed demo shows up at once.
+  if (STATIC) demo = await (await fetch(STATIC, { cache: "no-cache" })).json();
   await loadProviders();
   await loadVideos();
 })();
