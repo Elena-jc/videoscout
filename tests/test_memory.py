@@ -74,6 +74,68 @@ def test_build_writes_events_storyline_clip_embeddings_and_thumbnails(tmp_path, 
     assert len(thumbs) == 2 and 20 <= thumbs[0][0] < thumbs[1][0] < 30 and thumbs[0][1].ndim == 3
 
 
+class FakeBatchCaptioner(FakeCaptioner):
+    """Same outputs, through the batched interface the real LocalCaptioner exposes."""
+
+    def __init__(self):
+        super().__init__()
+        self.batches = []
+
+    def caption_clips(self, clips):
+        self.batches.append(len(clips))
+        return [self.caption_clip(frames, seconds) for frames, seconds in clips]
+
+    def write_many(self, prompts):
+        self.batches.append(len(prompts))
+        return [self.write(p) for p in prompts]
+
+
+def test_batched_captioning_matches_single_requests(tmp_path, cfg):
+    video = write_tiny_video(tmp_path / "scenes.mp4", seconds=60)
+    cfg.index.event_min_seconds = 5
+    captioner = FakeBatchCaptioner()
+    index = VideoIndex(build_index(video, tmp_path / "index", cfg, with_tracks=False, log=lambda _: None,
+                                   captioner=captioner, clip_embedder=FakeClipEmbedder()))
+    assert captioner.batches == [6, 3]  # all clips in one call, then all event summaries in one call
+    assert [e.summary for e in index.events] == ["Event: blue", "Event: green", "Event: red"]
+
+
+class Interrupted(Exception):
+    pass
+
+
+class DyingCaptioner(FakeBatchCaptioner):
+    """Captions one batch, then the 'machine shuts down'."""
+
+    def caption_clips(self, clips):
+        if self.batches:
+            raise Interrupted
+        return super().caption_clips(clips)
+
+
+def test_interrupted_build_resumes_from_checkpoint(tmp_path, cfg, monkeypatch):
+    import videoscout.index.build as build
+
+    monkeypatch.setattr(build, "CAPTION_LOG_EVERY", 2)  # checkpoint every 2 clips
+    video = write_tiny_video(tmp_path / "scenes.mp4", seconds=60)
+    cfg.index.event_min_seconds = 5
+    out = tmp_path / "index"
+    try:
+        build_index(video, out, cfg, with_tracks=False, log=lambda _: None,
+                    captioner=DyingCaptioner(), clip_embedder=FakeClipEmbedder())
+    except Interrupted:
+        pass
+    assert (out / "_partial" / "captions.pkl").exists() and not (out / "meta.json").exists()
+
+    second = FakeBatchCaptioner()
+    logs = []
+    build_index(video, out, cfg, with_tracks=False, log=logs.append, captioner=second, clip_embedder=FakeClipEmbedder())
+    assert "resumed 2 clip captions" in logs and second.batches[:2] == [2, 2]  # only the 4 missing clips
+    index = VideoIndex(out)
+    assert [s.caption for s in index.segments] == ["a blue screen"] * 2 + ["a green screen"] * 2 + ["a red screen"] * 2
+    assert not (out / "_partial").exists()
+
+
 def test_browse_timeline_overview_and_zoom(tmp_path, cfg):
     index = _three_scene_index(tmp_path, cfg)
     tool = make_browse_tool(index)

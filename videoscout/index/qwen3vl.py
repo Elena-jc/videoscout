@@ -155,7 +155,12 @@ CLIP_CAPTION_PROMPT = (
 
 
 class LocalCaptioner:
-    def __init__(self, model_name: str = CAPTIONER_MODEL, device: str = "auto", max_side: int = 448):
+    """Generation is batched: one forward pass decodes several clips (or event
+    summaries) at once, which keeps the GPU busy where single requests leave it
+    mostly idle. Prompts are left-padded, as decoder-only generation requires."""
+
+    def __init__(self, model_name: str = CAPTIONER_MODEL, device: str = "auto", max_side: int = 448,
+                 caption_batch: int = 8, write_batch: int = 4):
         from transformers import AutoProcessor, Qwen3VLForConditionalGeneration
 
         _quiet_transformers()
@@ -163,32 +168,51 @@ class LocalCaptioner:
         self.device = resolve_device(device)
         self.model = Qwen3VLForConditionalGeneration.from_pretrained(model_name, dtype=_dtype(self.device)).eval()
         self.processor = AutoProcessor.from_pretrained(model_name)
+        self.processor.tokenizer.padding_side = "left"
         self.max_side = max_side
+        self.caption_batch = caption_batch
+        self.write_batch = write_batch
 
-    def _generate(self, content: list[dict], max_new_tokens: int, **processor_kwargs) -> str:
+    def _generate(self, contents: list[list[dict]], max_new_tokens: int, **processor_kwargs) -> list[str]:
         import torch
 
-        messages = [{"role": "user", "content": content}]
+        conversations = [[{"role": "user", "content": content}] for content in contents]
         with POOL.use(self.name, self.model, self.device):
             inputs = self.processor.apply_chat_template(
-                messages, tokenize=True, add_generation_prompt=True, return_dict=True, return_tensors="pt",
-                **processor_kwargs,
+                conversations, tokenize=True, add_generation_prompt=True, return_dict=True, return_tensors="pt",
+                padding=True, **processor_kwargs,
             ).to(self.model.device)
             with torch.inference_mode():
                 out = self.model.generate(**inputs, max_new_tokens=max_new_tokens, do_sample=False)
-        text = self.processor.batch_decode(out[:, inputs["input_ids"].shape[1]:], skip_special_tokens=True)[0]
-        return " ".join(text.split())
+        texts = self.processor.batch_decode(out[:, inputs["input_ids"].shape[1]:], skip_special_tokens=True)
+        return [" ".join(t.split()) for t in texts]
+
+    def caption_clips(self, clips: Sequence[tuple[Sequence[np.ndarray], float]], max_new_tokens: int = 72) -> list[str]:
+        """Captions for (frames, seconds) clips, `caption_batch` at a time."""
+        out: list[str] = []
+        for i in range(0, len(clips), self.caption_batch):
+            batch = clips[i:i + self.caption_batch]
+            contents, metadata = [], []
+            for frames, seconds in batch:
+                n = len(frames)
+                metadata.append({"fps": n / max(seconds, 1e-3), "total_num_frames": n, "frames_indices": list(range(n))})
+                contents.append([{"type": "video", "video": to_pil(frames, self.max_side)},
+                                 {"type": "text", "text": CLIP_CAPTION_PROMPT.format(seconds=seconds)}])
+            out += self._generate(contents, max_new_tokens, do_sample_frames=False, video_metadata=metadata)
+        return out
 
     def caption_clip(self, frames: Sequence[np.ndarray], seconds: float, max_new_tokens: int = 72) -> str:
-        n = len(frames)
-        metadata = [{"fps": n / max(seconds, 1e-3), "total_num_frames": n, "frames_indices": list(range(n))}]
-        content = [{"type": "video", "video": to_pil(frames, self.max_side)},
-                   {"type": "text", "text": CLIP_CAPTION_PROMPT.format(seconds=seconds)}]
-        return self._generate(content, max_new_tokens, do_sample_frames=False, video_metadata=metadata)
+        return self.caption_clips([(frames, seconds)], max_new_tokens)[0]
+
+    def write_many(self, prompts: Sequence[str], max_new_tokens: int = 160) -> list[str]:
+        """Text-only generation (event summaries, storyline), `write_batch` at a time."""
+        out: list[str] = []
+        for i in range(0, len(prompts), self.write_batch):
+            out += self._generate([[{"type": "text", "text": p}] for p in prompts[i:i + self.write_batch]], max_new_tokens)
+        return out
 
     def write(self, prompt: str, max_new_tokens: int = 160) -> str:
-        """Text-only generation (event summaries, storyline)."""
-        return self._generate([{"type": "text", "text": prompt}], max_new_tokens)
+        return self.write_many([prompt], max_new_tokens)[0]
 
     def unload(self) -> None:
         POOL.release(self.name)

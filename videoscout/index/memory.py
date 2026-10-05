@@ -106,18 +106,32 @@ def _fallback_summary(segments: Sequence[Segment], limit: int = 220) -> str:
     return text if len(text) <= limit else text[: limit - 3] + "..."
 
 
-def summarize_events(events: list[Event], segments: Sequence[Segment], write: Writer | None) -> None:
+BatchWriter = Callable[[list[str]], list[str]]  # several prompts in one batched call
+
+
+def _writer_many(write: Writer, write_many: BatchWriter | None) -> BatchWriter:
+    return write_many or (lambda prompts: [write(p) for p in prompts])
+
+
+def summarize_events(events: list[Event], segments: Sequence[Segment], write: Writer | None,
+                     write_many: BatchWriter | None = None) -> None:
     by_id = {s.seg_id: s for s in segments}
+    pending: list[tuple[Event, str]] = []
     for ev in events:
         members = [by_id[i] for i in range(ev.seg_first, ev.seg_last + 1) if i in by_id]
         notes = _notes(members)
         if write is None or not notes:
             ev.summary = _fallback_summary(members)
-            continue
-        ev.summary = write(EVENT_PROMPT.format(start=fmt_ts(ev.t_start), end=fmt_ts(ev.t_end), notes=notes))
+        else:
+            pending.append((ev, EVENT_PROMPT.format(start=fmt_ts(ev.t_start), end=fmt_ts(ev.t_end), notes=notes)))
+    if pending:
+        summaries = _writer_many(write, write_many)([prompt for _, prompt in pending])
+        for (ev, _), summary in zip(pending, summaries):
+            ev.summary = summary
 
 
-def write_storyline(events: Sequence[Event], duration: float, write: Writer | None) -> str:
+def write_storyline(events: Sequence[Event], duration: float, write: Writer | None,
+                    write_many: BatchWriter | None = None) -> str:
     parts = [f"[{fmt_ts(e.t_start)}-{fmt_ts(e.t_end)}] {e.summary}" for e in events if e.summary]
     if not parts:
         return ""
@@ -125,8 +139,8 @@ def write_storyline(events: Sequence[Event], duration: float, write: Writer | No
         return " ".join(e.summary for e in events[:3] if e.summary)[:400]
     # Hierarchical for long videos: summarise groups of parts, then the group summaries.
     while len(parts) > STORYLINE_GROUP * 2:
-        parts = [
-            write(STORYLINE_PROMPT.format(duration=fmt_ts(duration), parts="\n".join(parts[i:i + STORYLINE_GROUP]), words=80))
+        parts = _writer_many(write, write_many)([
+            STORYLINE_PROMPT.format(duration=fmt_ts(duration), parts="\n".join(parts[i:i + STORYLINE_GROUP]), words=80)
             for i in range(0, len(parts), STORYLINE_GROUP)
-        ]
+        ])
     return write(STORYLINE_PROMPT.format(duration=fmt_ts(duration), parts="\n".join(parts), words=120))
