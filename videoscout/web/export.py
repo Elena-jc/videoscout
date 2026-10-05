@@ -10,6 +10,7 @@ so it can be hosted for free on GitHub Pages without exposing any API key.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import shutil
 from pathlib import Path
@@ -70,6 +71,10 @@ def export_site(run_dir: Path, index_dir: Path, out: Path, repo_url: str = "") -
         shutil.copy2(video, published)
     else:
         published = make_browser_preview(video, media / index.dir.name)
+    # Content-hashed name: browsers and the Pages CDN cache media aggressively, so a
+    # changed video must get a new URL or visitors keep seeing the old one.
+    digest = hashlib.sha256(published.read_bytes()).hexdigest()[:10]
+    published = published.rename(published.with_name(f"{index.dir.name}-{digest}{published.suffix}"))
 
     demo = {
         "model": model,
