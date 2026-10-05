@@ -1,0 +1,24 @@
+# Fully local and free with Ollama (https://ollama.com), no API key.
+#   1. install Ollama, then pull a model that supports BOTH images and tool calling
+#      and fits your GPU, e.g.  ollama pull qwen3-vl:8b   (check the Ollama library)
+#   2. add --config configs/ollama.yaml to any command
+# Small local models are much weaker at multi-step tool use than hosted ones:
+# expect more nudges, forced answers and lower accuracy. Good for debugging for free.
+
+models:
+  provider: openai_compat
+  base_url: http://localhost:11434/v1
+  api_key_env: ""
+  planner: qwen3-vl:8b
+  verifier: qwen3-vl:8b
+  vision: qwen3-vl:8b
+  captioner: qwen3-vl:8b
+  json_mode: schema
+  max_tokens: 4096
+
+index:
+  caption_mode: sync
+
+agent:
+  max_frames_per_inspect: 4   # fewer images per call keeps local inference fast
+  default_frames_per_inspect: 4

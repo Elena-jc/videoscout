@@ -1,0 +1,70 @@
+# VideoScout default configuration. Override any field from the CLI with
+#   --set agent.max_tool_calls=8 --set retrieval.use_bm25=false
+
+models:
+  # One model per role. Opus 5.5 everywhere by default; captioning is a bulk
+  # offline job, so it is the first place to consider a cheaper model.
+  planner: claude-opus-5-5
+  verifier: claude-opus-5-5
+  vision: claude-opus-5-5
+  captioner: claude-opus-5-5
+  planner_effort: medium
+  verifier_effort: medium
+  vision_effort: low
+  captioner_effort: low
+  max_tokens: 16000
+  # Server-side refusal fallback (beta server-side-fallback-2026-07-01, fallbacks: "default").
+  use_fallbacks: true
+  # Local safety caps per day (videoscout/spend.py); 0 = no cap. Claude is paid per token.
+  daily_request_limit: 300
+  daily_cost_limit_usd: 3.0
+
+index:
+  segment_seconds: 10.0      # retrieval unit ("chunk size" for video)
+  keyframe_every: 2.0        # SigLIP keyframe spacing inside a segment
+  track_fps: 2.0             # frames per second fed to the detector + tracker
+  yolo_weights: yolo26s.pt   # YOLO26: end-to-end (NMS-free); n/s/m/l/x trade speed for accuracy
+  yolo_conf: 0.3
+  tracker: bytetrack.yaml    # or botsort.yaml (camera-motion compensation)
+  # SigLIP 2 (2025): better text->image retrieval than SigLIP, multilingual queries.
+  # On CPU only, use google/siglip2-base-patch16-224 (4x smaller).
+  siglip_model: google/siglip2-so400m-patch14-384
+  device: auto               # auto | cpu | cuda
+  caption: false             # VLM captions per segment (extra cost, better text recall)
+  caption_mode: batch        # batch (Batches API, 50% cheaper, async) | sync
+
+retrieval:
+  use_dense: true
+  use_bm25: true
+  rrf_k: 60
+  candidate_pool: 40
+  mmr_lambda: 0.7
+  mmr_tau_seconds: 30.0
+
+grounding:
+  # YOLOE-26: open-vocabulary detection from text prompts ("red jacket", "forklift"),
+  # used by the find_objects tool at question time. Empty string disables the tool.
+  weights: yoloe-26s-seg.pt
+  conf: 0.25
+  max_frames: 16
+  default_frames: 8
+
+agent:
+  tools: inprocess           # inprocess | mcp
+  disabled_tools: ""         # comma-separated, for ablations, e.g. "query_tracks"
+  strict_tools: true
+  max_tool_calls: 12
+  max_frames: 48
+  max_frames_per_inspect: 8
+  default_frames_per_inspect: 6
+  verify: true
+  max_verify_rounds: 2
+  confidence_threshold: 0.6
+  max_llm_turns: 20
+
+# USD per 1M tokens, used to report cost per question.
+pricing:
+  claude-opus-5-5: {input: 4.0, output: 20.0, cache_write: 5.0, cache_read: 0.20}
+  claude-opus-4-8: {input: 5.0, output: 25.0, cache_write: 6.25, cache_read: 0.50}
+  claude-sonnet-5-5: {input: 2.0, output: 10.0, cache_write: 2.5, cache_read: 0.20}
+  claude-haiku-4-5: {input: 1.0, output: 5.0, cache_write: 1.25, cache_read: 0.10}

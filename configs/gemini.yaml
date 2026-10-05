@@ -1,0 +1,40 @@
+# Google Gemini through its OpenAI-compatible endpoint (has a free tier).
+#   1. Create a key at https://aistudio.google.com/apikey
+#   2. Put it in the project's .env file: GEMINI_API_KEY=...
+#   3. add --config configs/gemini.yaml to any command (the web app does this for "Gemini")
+#
+# Free-tier quotas are small and counted PER MODEL (e.g. 20 requests/day for a Flash
+# model when this was written). One question takes roughly 5 planner + 1-3 vision +
+# 1 verifier requests, so the roles below use three different models to spread the
+# load across three quotas: a few questions per day for free. Benchmarks need a paid
+# key, Claude, or a local model (configs/ollama.yaml).
+# When a model's daily quota runs out the run stops with a clear message; switch it,
+# e.g. --set models.planner=gemini-3.5-flash. List models: GET {base_url}/models.
+# On the free tier Google may use prompts to improve its products, so only send
+# videos you are comfortable sharing.
+
+models:
+  provider: openai_compat
+  base_url: https://generativelanguage.googleapis.com/v1beta/openai
+  api_key_env: GEMINI_API_KEY
+  # Pinned versions keep results reproducible ("-latest" aliases move over time).
+  planner: gemini-3.7-flash          # multi-step tool use: the strongest model here
+  vision: gemini-3.5-flash           # reads frames inside inspect_clip
+  verifier: gemini-flash-lite-latest # one structured judgement per answer
+  captioner: gemini-flash-lite-latest
+  json_mode: schema
+  # Gemini 3 models think at length by default; frame reading (vision_effort: low)
+  # and verification do not need it, and long thinking makes free-tier calls slow.
+  send_reasoning_effort: true
+  planner_effort: medium
+  vision_effort: low
+  verifier_effort: low
+  captioner_effort: low
+  min_request_interval: 6.0   # stay under the free tier's requests-per-minute limit
+  max_tokens: 8192
+  # Local safety cap (videoscout/spend.py), on top of Google's own free-tier quota:
+  # even if billing were ever enabled on this key, a runaway loop cannot spend.
+  daily_request_limit: 60
+
+index:
+  caption_mode: sync

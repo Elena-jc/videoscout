@@ -1,0 +1,17 @@
+.env
+__pycache__/
+*.egg-info/
+.venv/
+.pytest_cache/
+*.pt
+*.ts
+weights/
+.cache/
+.tmp/
+.tools/
+.claude/
+indexes/
+runs/
+site/
+data/demo/
+data/uploads/

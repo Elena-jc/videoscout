@@ -1,0 +1,369 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VideoScout</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --text: #1b1f24; --muted: #667085; --border: #e3e6ea;
+    --accent: #4f46e5; --accent-soft: #eef0ff; --ok: #12805c; --ok-soft: #e7f6ef;
+    --warn: #b54708; --warn-soft: #fef4e6; --err: #c4320a; --err-soft: #fdecea; --code: #f2f4f7;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1115; --panel: #171a21; --text: #e6e8eb; --muted: #98a2b3; --border: #2a2f3a;
+      --accent: #8b85ff; --accent-soft: #23234a; --ok: #4ade80; --ok-soft: #12301f;
+      --warn: #fbbf24; --warn-soft: #33270d; --err: #f87171; --err-soft: #3a1515; --code: #1f232c;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  header { min-height: 56px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; padding: 8px 16px; background: var(--panel); border-bottom: 1px solid var(--border); }
+  #mode-banner { min-width: 0; overflow-wrap: anywhere; }
+  header h1 { font-size: 17px; margin: 0; letter-spacing: .2px; }
+  header .tag { color: var(--muted); font-size: 13px; }
+  header .spacer { flex: 1; }
+  select, input, textarea, button { font: inherit; color: inherit; }
+  select, input[type=text], textarea { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; width: 100%; }
+  textarea { resize: vertical; }
+  button { cursor: pointer; border: 1px solid var(--border); background: var(--panel); border-radius: 8px; padding: 7px 14px; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  button:disabled { opacity: .55; cursor: not-allowed; }
+  .layout { display: grid; grid-template-columns: 260px minmax(0, 1fr) 420px; gap: 16px; padding: 16px; height: calc(100vh - 56px); }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 14px; overflow: auto; min-height: 0; }
+  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); margin: 0 0 10px; }
+  #video-list { list-style: none; margin: 0 0 14px; padding: 0; display: grid; gap: 8px; }
+  #video-list li { border: 1px solid var(--border); border-radius: 10px; padding: 9px 11px; cursor: pointer; }
+  #video-list li.active { border-color: var(--accent); background: var(--accent-soft); }
+  #video-list .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #video-list .meta { color: var(--muted); font-size: 12px; }
+  details.add summary { cursor: pointer; font-weight: 600; color: var(--accent); }
+  details.add form { display: grid; gap: 8px; margin-top: 10px; }
+  details.add label { font-size: 12px; color: var(--muted); }
+  .or { text-align: center; color: var(--muted); font-size: 12px; margin: 10px 0 0; }
+  pre { background: var(--code); border-radius: 8px; padding: 8px 10px; white-space: pre-wrap; word-break: break-word; font: 12px/1.45 ui-monospace, Consolas, monospace; margin: 6px 0 0; }
+  #index-log:empty { display: none; }
+  .center { display: flex; flex-direction: column; gap: 12px; }
+  video { width: 100%; max-height: 46vh; background: #000; border-radius: 10px; }
+  #video-meta { color: var(--muted); font-size: 12px; }
+  #ask-form { display: grid; gap: 8px; }
+  .row { display: flex; align-items: center; gap: 10px; }
+  #ask-status { color: var(--muted); font-size: 13px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { font-size: 12px; border-radius: 999px; padding: 4px 10px; }
+  .hint { font-size: 12px; color: var(--warn); }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--err); margin-right: 6px; }
+  .dot.ok { background: var(--ok); }
+  #trace { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+  .step { border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; }
+  .step .label { font-size: 12px; font-weight: 600; color: var(--muted); display: flex; gap: 6px; align-items: center; }
+  .step p { margin: 4px 0 0; }
+  .step.agent { border-left: 3px solid var(--accent); }
+  .step.tool { border-left: 3px solid var(--muted); }
+  .step.tool.error { border-left-color: var(--err); }
+  .step.verify { border-left: 3px solid var(--ok); }
+  .step.verify.rejected { border-left-color: var(--warn); }
+  .call { font: 12px ui-monospace, Consolas, monospace; background: var(--accent-soft); border-radius: 6px; padding: 3px 7px; margin-top: 5px; overflow-wrap: anywhere; }
+  details.result summary { cursor: pointer; color: var(--muted); font-size: 12px; margin-top: 4px; }
+  .badge { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; }
+  .badge.ok { background: var(--ok-soft); color: var(--ok); }
+  .badge.warn { background: var(--warn-soft); color: var(--warn); }
+  .badge.err { background: var(--err-soft); color: var(--err); }
+  .answer { border: 1px solid var(--border); border-radius: 12px; padding: 14px; margin-bottom: 14px; }
+  .answer.empty { color: var(--muted); }
+  .answer .main { display: flex; align-items: baseline; gap: 10px; font-size: 20px; font-weight: 700; }
+  .answer .letter { color: var(--accent); }
+  .answer .badges { display: flex; gap: 6px; margin: 8px 0; flex-wrap: wrap; }
+  .bar { height: 8px; background: var(--code); border-radius: 999px; overflow: hidden; flex: 1; }
+  .bar i { display: block; height: 100%; background: var(--accent); }
+  .conf { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+  .rationale { margin: 10px 0; }
+  .usage { color: var(--muted); font-size: 12px; margin-top: 10px; }
+  .answer.error { border-color: var(--err); background: var(--err-soft); }
+  button.ts { font-size: 12px; padding: 1px 7px; border-radius: 6px; color: var(--accent); border-color: var(--accent); background: transparent; }
+  .evidence { display: grid; gap: 6px; }
+  .evidence div { display: flex; gap: 8px; align-items: baseline; }
+  .spinner { width: 12px; height: 12px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; display: inline-block; animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (max-width: 1100px) { .layout { grid-template-columns: 1fr; height: auto; } .panel { overflow: visible; } }
+  @media (max-width: 700px) { #tagline { display: none; } .layout { padding: 12px; gap: 12px; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>VideoScout</h1>
+  <span class="tag" id="tagline">agentic question answering over long videos</span>
+  <span class="spacer"></span>
+  <span class="tag" id="usage"></span>
+  <label for="provider" id="provider-label" style="color:var(--muted);font-size:13px">Model</label>
+  <select id="provider" style="width:auto"></select>
+  <span class="tag" id="mode-banner" hidden></span>
+</header>
+
+<main class="layout">
+  <aside class="panel">
+    <h2>Videos</h2>
+    <ul id="video-list"></ul>
+    <details class="add" id="add-video">
+      <summary>+ Add a video</summary>
+      <form id="upload-form">
+        <label>Video file <input type="file" name="video" accept="video/*" required></label>
+        <label>Subtitles (.srt, optional) <input type="file" name="subtitles" accept=".srt"></label>
+        <button class="primary" type="submit">Upload and index</button>
+      </form>
+      <p class="or">or index a file already on this computer</p>
+      <form id="path-form">
+        <input type="text" name="path" placeholder="F:\videos\talk.mp4" required>
+        <input type="text" name="srt_path" placeholder="subtitle path (optional)">
+        <button type="submit">Index this file</button>
+      </form>
+      <pre id="index-log"></pre>
+    </details>
+  </aside>
+
+  <section class="panel center">
+    <video id="player" controls preload="metadata"></video>
+    <div id="video-meta"></div>
+    <form id="ask-form">
+      <textarea id="question" rows="2" placeholder="Ask anything about this video" required></textarea>
+      <textarea id="options" rows="3" placeholder="Multiple-choice options, one per line (optional)&#10;A. ...&#10;B. ..."></textarea>
+      <div class="row">
+        <button class="primary" id="ask-btn" type="submit">Ask</button>
+        <span id="ask-status"></span>
+      </div>
+      <div class="hint" id="provider-hint"></div>
+    </form>
+    <div>
+      <h2>Try a question</h2>
+      <div class="chips" id="suggestions"><span style="color:var(--muted);font-size:12px">No suggested questions for this video.</span></div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div id="answer" class="answer empty">Ask a question to see the answer, the evidence behind it and every step the agent took.</div>
+    <h2>Agent trace</h2>
+    <ol id="trace"></ol>
+  </section>
+</main>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const fmt = (t) => {
+  t = Math.max(0, Math.round(t)); const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), s = t % 60;
+  return (h ? h + ":" + String(m).padStart(2, "0") : String(m).padStart(2, "0")) + ":" + String(s).padStart(2, "0");
+};
+// Escape first, then turn "t=80.0-90.0s" / "t=83.3s" into buttons that seek the player.
+const linkTimes = (text) => esc(text)
+  .replace(/t=(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)s/g, (_, a, b) => `<button class="ts" data-t="${a}">${fmt(+a)}–${fmt(+b)}</button>`)
+  .replace(/t=(\d+(?:\.\d+)?)s\b/g, (_, a) => `<button class="ts" data-t="${a}">${fmt(+a)}</button>`);
+
+// Static export (GitHub Pages): no server, recorded runs are replayed from demo.json.
+const STATIC = window.VIDEOSCOUT_STATIC || null;
+let demo = null;
+const state = { videos: [], video: null, providers: [], options: [], running: false, started: 0 };
+const store = { get: (k) => { try { return localStorage.getItem(k); } catch { return null; } },
+                set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
+
+async function api(path, opts) {
+  const res = await fetch(path, opts);
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || res.statusText);
+  return body;
+}
+
+function seek(t) { const p = $("#player"); p.currentTime = t; p.play().catch(() => {}); }
+document.addEventListener("click", (e) => { const b = e.target.closest("button.ts"); if (b) { e.preventDefault(); seek(+b.dataset.t); } });
+
+// ---------------------------------------------------------------- providers
+async function loadProviders() {
+  if (STATIC) {
+    $("#provider").hidden = true; $("#provider-label").hidden = true; $("#add-video").hidden = true;
+    $("#mode-banner").hidden = false;
+    $("#mode-banner").innerHTML = `Recorded demo (${esc(demo.model)}): replays real agent runs. ` +
+      (demo.repo_url ? `<a href="${esc(demo.repo_url)}" target="_blank" rel="noopener">Run it yourself</a>` : "");
+    return;
+  }
+  state.providers = await api("/api/providers");
+  const sel = $("#provider"), saved = store.get("provider");
+  sel.innerHTML = state.providers.map((p) => `<option value="${p.id}">${esc(p.label)}${p.ready ? "" : " (not set up)"}</option>`).join("");
+  const first = state.providers.find((p) => p.id === saved) || state.providers.find((p) => p.ready) || state.providers[0];
+  sel.value = first.id;
+  showProviderHint();
+}
+function showProviderHint() {
+  const p = state.providers.find((x) => x.id === $("#provider").value);
+  $("#provider-hint").textContent = p && !p.ready ? p.hint : "";
+  if (!p) return;
+  const cap = p.limits.requests ? ` / ${p.limits.requests}` : "";
+  const usd = p.today.cost_usd ? ` · $${p.today.cost_usd.toFixed(3)}${p.limits.usd ? " / $" + p.limits.usd : ""}` : "";
+  $("#usage").textContent = `today: ${p.today.requests}${cap} requests${usd}`;
+}
+$("#provider").addEventListener("change", () => { store.set("provider", $("#provider").value); showProviderHint(); });
+
+// ------------------------------------------------------------------- videos
+async function loadVideos(selectId) {
+  state.videos = STATIC ? demo.videos : await api("/api/videos");
+  $("#video-list").innerHTML = state.videos.map((v) => `
+    <li data-id="${v.id}">
+      <div class="name">${esc(v.name)}</div>
+      <div class="meta">${fmt(v.duration)} · ${v.has_subtitles ? "subtitles" : "no subtitles"}${v.available ? "" : " · file missing"}</div>
+    </li>`).join("") || `<li style="cursor:default;color:var(--muted)">No videos yet. Add one below.</li>`;
+  const target = state.videos.find((v) => v.id === selectId) || state.videos[0];
+  if (target) selectVideo(target.id);
+}
+$("#video-list").addEventListener("click", (e) => { const li = e.target.closest("li[data-id]"); if (li) selectVideo(li.dataset.id); });
+
+async function selectVideo(id) {
+  state.video = state.videos.find((v) => v.id === id);
+  document.querySelectorAll("#video-list li").forEach((li) => li.classList.toggle("active", li.dataset.id === id));
+  const v = state.video;
+  $("#player").src = STATIC ? v.url : `/api/videos/${id}/stream`;
+  $("#video-meta").textContent = `${v.name} · ${fmt(v.duration)} · indexed with ${v.tracker || "no tracker"} and ${v.embedder || "no embeddings"}`;
+  const qs = STATIC ? (demo.runs[id] || []).map((r) => ({ question: r.question, options: r.options }))
+                    : await api(`/api/videos/${id}/questions`);
+  $("#suggestions").innerHTML = qs.length
+    ? qs.map((q, i) => `<button class="chip" data-i="${i}">${esc(q.question)}</button>`).join("")
+    : `<span style="color:var(--muted);font-size:12px">No suggested questions for this video.</span>`;
+  $("#suggestions").onclick = (e) => {
+    const b = e.target.closest("button.chip"); if (!b) return;
+    const q = qs[+b.dataset.i]; $("#question").value = q.question; $("#options").value = q.options.join("\n");
+  };
+}
+
+// ------------------------------------------------------------- add a video
+function followIndexJob(jobId, videoId) {
+  const log = $("#index-log"); log.textContent = "";
+  const es = new EventSource(`/api/jobs/${jobId}/events`);
+  es.onmessage = (e) => {
+    const ev = JSON.parse(e.data);
+    if (ev.type === "log") log.textContent += ev.message + "\n";
+    if (ev.type === "error") log.textContent += "ERROR: " + ev.message + "\n";
+    if (ev.type === "done") { log.textContent += "done.\n"; loadVideos(videoId); }
+    log.scrollTop = log.scrollHeight;
+  };
+  es.addEventListener("end", () => es.close());
+}
+$("#upload-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const btn = e.target.querySelector("button"); btn.disabled = true; $("#index-log").textContent = "uploading...";
+  try { const r = await api("/api/videos", { method: "POST", body: new FormData(e.target) }); followIndexJob(r.job_id, r.video_id); }
+  catch (err) { $("#index-log").textContent = "ERROR: " + err.message; }
+  finally { btn.disabled = false; }
+});
+$("#path-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const f = new FormData(e.target);
+  try {
+    const r = await api("/api/videos", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: f.get("path"), srt_path: f.get("srt_path") || null }) });
+    followIndexJob(r.job_id, r.video_id);
+  } catch (err) { $("#index-log").textContent = "ERROR: " + err.message; }
+});
+
+// ---------------------------------------------------------------- ask
+function argsText(input) {
+  return Object.entries(input || {}).map(([k, v]) => `${k}: ${JSON.stringify(v)}`).join(", ");
+}
+function renderStep(step) {
+  const li = document.createElement("li");
+  if (step.node === "agent") {
+    li.className = "step agent";
+    li.innerHTML = `<div class="label">Agent</div>${step.text ? `<p>${esc(step.text)}</p>` : ""}` +
+      (step.tool_calls || []).map((c) => `<div class="call">→ ${esc(c.name)}(${esc(argsText(c.input)).slice(0, 400)})</div>`).join("");
+  } else if (step.node === "tools") {
+    li.className = "step tool" + (step.is_error ? " error" : "");
+    const first = (step.result || "").split("\n")[0];
+    li.innerHTML = `<div class="label">${esc(step.name)} · ${step.latency_s.toFixed(1)} s ${step.is_error ? '<span class="badge err">error</span>' : ""}</div>
+      <details class="result"${step.name === "inspect_clip" || step.is_error ? " open" : ""}><summary>${esc(first.slice(0, 120))}</summary><pre>${linkTimes(step.result)}</pre></details>`;
+  } else if (step.node === "verify") {
+    if (step.verdict) {
+      const v = step.verdict;
+      li.className = "step verify" + (step.accepted ? "" : " rejected");
+      li.innerHTML = `<div class="label">Verifier ${step.accepted ? '<span class="badge ok">accepted</span>' : '<span class="badge warn">not accepted</span>'} confidence ${v.confidence.toFixed(2)}</div>` +
+        (v.issues ? `<p>${esc(v.issues)}</p>` : "") + (!step.accepted && v.next_step ? `<p style="color:var(--muted)">Next: ${esc(v.next_step)}</p>` : "");
+    } else {
+      li.className = "step verify";
+      li.innerHTML = `<div class="label">Verifier</div><p>${esc(step.error || (step.skipped ? "skipped" : ""))}</p>`;
+    }
+  } else {
+    li.className = "step";
+    li.innerHTML = `<div class="label">${step.node === "nudge" ? "Reminder sent to the agent" : "Budget used up: answering from the evidence gathered"}</div>`;
+  }
+  $("#trace").appendChild(li);
+  li.scrollIntoView({ block: "nearest" });
+}
+
+function renderFinal(ev) {
+  const f = ev.final || {};
+  const opt = state.options.find((o) => o.trim().toUpperCase().startsWith((f.answer || "") + "."));
+  let status = f.forced ? '<span class="badge warn">forced answer</span>'
+    : f.accepted ? '<span class="badge ok">verified</span>' : '<span class="badge warn">low confidence</span>';
+  if (ev.gold) status += ev.correct ? ` <span class="badge ok">correct (gold ${esc(ev.gold)})</span>`
+                                    : ` <span class="badge err">wrong (gold ${esc(ev.gold)})</span>`;
+  const evidence = (f.evidence || []).map((e) => `<div><button class="ts" data-t="${e.t_start}">${fmt(e.t_start)}–${fmt(e.t_end)}</button><span>${esc(e.observation)}</span></div>`).join("");
+  const secs = (ev.latency_s ?? (Date.now() - state.started) / 1000).toFixed(1);
+  const u = ev.usage || {};
+  $("#answer").className = "answer";
+  $("#answer").innerHTML = `
+    <div class="main"><span class="letter">${esc(f.answer)}</span><span>${esc(opt ? opt.replace(/^\s*[A-Za-z][.)]\s*/, "") : "")}</span></div>
+    <div class="badges">${status}</div>
+    <div class="conf">Verifier <div class="bar"><i style="width:${Math.round((f.confidence || 0) * 100)}%"></i></div>${(f.confidence ?? 0).toFixed(2)}</div>
+    <div class="conf">Agent's own <div class="bar"><i style="width:${Math.round((f.self_confidence || 0) * 100)}%;opacity:.5"></i></div>${(f.self_confidence ?? 0).toFixed(2)}</div>
+    <p class="rationale">${esc(f.rationale)}</p>
+    ${evidence ? `<h2>Evidence (click to jump)</h2><div class="evidence">${evidence}</div>` : ""}
+    <div class="usage">${ev.budget.tool_calls} tool calls · ${ev.budget.frames} frames inspected · ${u.calls} model calls · ${(u.input_tokens || 0).toLocaleString()} in / ${(u.output_tokens || 0).toLocaleString()} out tokens · $${(u.cost_usd || 0).toFixed(4)} · ${secs} s</div>`;
+}
+
+function renderError(message) {
+  $("#answer").className = "answer error";
+  const hint = /API_KEY/.test(message) ? "<p>Open the .env file in the project folder, paste your key after the matching name, save, and restart VideoScout.</p>" : "";
+  $("#answer").innerHTML = `<strong>Something went wrong</strong><p>${esc(message)}</p>${hint}`;
+}
+
+$("#ask-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  if (!state.video || state.running) return;
+  state.options = $("#options").value.split("\n").map((s) => s.trim()).filter(Boolean);
+  const body = { video_id: state.video.id, question: $("#question").value.trim(), options: state.options, provider: $("#provider").value };
+  state.running = true; state.started = Date.now();
+  $("#ask-btn").disabled = true; $("#trace").innerHTML = "";
+  $("#answer").className = "answer empty"; $("#answer").textContent = "Working...";
+  $("#ask-status").innerHTML = '<span class="spinner"></span> the agent is investigating';
+  const done = () => { state.running = false; $("#ask-btn").disabled = false; $("#ask-status").textContent = ""; };
+  const handle = (ev) => {
+    if (ev.type === "start") $("#ask-status").innerHTML = `<span class="spinner"></span> ${esc(ev.model)} is investigating (budget: ${ev.budget.tool_calls} tool calls, ${ev.budget.frames} frames)`;
+    if (ev.type === "step") renderStep(ev.step);
+    if (ev.type === "final") renderFinal(ev);
+    if (ev.type === "error") renderError(ev.message);
+  };
+  if (STATIC) {
+    const run = (demo.runs[state.video.id] || []).find((r) => r.question === body.question);
+    if (!run) { renderError("This public demo replays recorded runs only. Pick one of the suggested questions, or run VideoScout on your own machine to ask anything."); done(); return; }
+    let i = 0;
+    const next = () => {  // replay the recorded events at a readable pace
+      if (i >= run.events.length) { done(); return; }
+      const ev = run.events[i++]; handle(ev);
+      setTimeout(next, ev.type === "step" ? 900 : 300);
+    };
+    next();
+    return;
+  }
+  try {
+    const r = await api("/api/ask", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const es = new EventSource(`/api/jobs/${r.job_id}/events`);
+    es.onmessage = (m) => handle(JSON.parse(m.data));
+    es.addEventListener("end", () => { es.close(); done(); loadProviders(); });  // refresh today's usage
+    es.onerror = () => { if (es.readyState === EventSource.CLOSED) done(); };
+  } catch (err) { renderError(err.message); done(); }
+});
+
+(async () => {
+  if (STATIC) demo = await (await fetch(STATIC)).json();
+  await loadProviders();
+  await loadVideos();
+})();
+</script>
+</body>
+</html>
