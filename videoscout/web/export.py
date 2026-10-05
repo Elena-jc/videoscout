@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from ..index.store import VideoIndex
+from ..video import browser_playable, make_browser_preview
 
 STATIC = Path(__file__).parent / "static"
 
@@ -54,9 +55,21 @@ def export_site(run_dir: Path, index_dir: Path, out: Path, repo_url: str = "") -
 
     out.mkdir(parents=True, exist_ok=True)
     media = out / "media"
-    media.mkdir(exist_ok=True)
+    if media.exists():
+        shutil.rmtree(media)
+    media.mkdir()
     video = Path(index.video_path)
-    shutil.copy2(video, media / f"{index.dir.name}{video.suffix}")
+    # The site must play in any browser: reuse the index's preview, copy a video that
+    # is already H.264/VP9, or re-encode one that is not (e.g. OpenCV's mp4v).
+    preview = next((index.dir / n for n in ("preview.mp4", "preview.webm") if (index.dir / n).exists()), None)
+    if preview is not None:
+        published = media / f"{index.dir.name}{preview.suffix}"
+        shutil.copy2(preview, published)
+    elif browser_playable(video):
+        published = media / f"{index.dir.name}{video.suffix}"
+        shutil.copy2(video, published)
+    else:
+        published = make_browser_preview(video, media / index.dir.name)
 
     demo = {
         "model": model,
@@ -69,7 +82,7 @@ def export_site(run_dir: Path, index_dir: Path, out: Path, repo_url: str = "") -
             "tracker": index.meta.get("yolo_weights"),
             "embedder": index.meta.get("siglip_model"),
             "available": True,
-            "url": f"media/{index.dir.name}{video.suffix}",
+            "url": f"media/{published.name}",
         }],
         "runs": {index.dir.name: runs},
     }

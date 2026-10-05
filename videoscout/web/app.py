@@ -41,6 +41,7 @@ from ..index.build import build_index
 from ..index.store import VideoIndex
 from ..llm import make_llm
 from ..tools import open_toolset
+from ..video import browser_playable, fourcc_of, make_browser_preview
 from ..vision import LLMVision
 from .jobs import Job, JobManager
 
@@ -159,6 +160,9 @@ def create_app(
             index = load_index(request.path_params["video_id"])
         except KeyError:
             return _error(404, "unknown video")
+        preview = _preview_of(index.dir)  # browser-playable copy, if the original is not
+        if preview is not None:
+            return FileResponse(preview)
         if not Path(index.video_path).exists():
             return _error(404, "video file has moved or been deleted")
         return FileResponse(index.video_path)
@@ -179,7 +183,11 @@ def create_app(
         def work(job: Job) -> None:
             job.emit("log", message=f"indexing {video.name} ...")
             cfg = load_config()
-            build_index(video, index_root / video_id, cfg, srt_path=srt, log=lambda m: job.emit("log", message=m))
+            out = index_root / video_id
+            build_index(video, out, cfg, srt_path=srt, log=lambda m: job.emit("log", message=m))
+            if not browser_playable(video):
+                job.emit("log", message=f"{fourcc_of(video) or 'this codec'} does not play in browsers; writing a preview...")
+                make_browser_preview(video, out / "preview")
             job.emit("done", video_id=video_id)
 
         return jobs.submit("index", work)
@@ -309,6 +317,13 @@ def create_app(
             Mount("/static", StaticFiles(directory=STATIC), name="static"),
         ]
     )
+
+
+def _preview_of(index_dir: Path) -> Path | None:
+    for name in ("preview.mp4", "preview.webm"):
+        if (index_dir / name).exists():
+            return index_dir / name
+    return None
 
 
 def _warm_up(index_root: Path) -> None:

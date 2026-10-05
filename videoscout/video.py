@@ -81,6 +81,60 @@ class VideoReader:
             cap.release()
 
 
+# Codecs every major browser can play in <video>. OpenCV's default 'mp4v' (MPEG-4
+# Part 2) is not one of them, so videos written by OpenCV need a browser preview.
+BROWSER_CODECS = {"avc1", "h264", "x264", "vp80", "vp90", "vp08", "vp09", "av01"}
+
+# Encoders to try, best first: H.264 through Windows Media Foundation (no extra
+# download, plays everywhere incl. Safari), then VP9/VP8 WebM through the FFmpeg
+# build bundled with opencv-python (works on every OS, all modern browsers).
+_BROWSER_WRITERS = ((cv2.CAP_MSMF, "avc1", ".mp4"), (cv2.CAP_FFMPEG, "VP90", ".webm"), (cv2.CAP_FFMPEG, "VP80", ".webm"))
+
+
+def fourcc_of(path: str | Path) -> str:
+    cap = cv2.VideoCapture(str(path))
+    code = int(cap.get(cv2.CAP_PROP_FOURCC))
+    cap.release()
+    return "".join(chr((code >> 8 * i) & 0xFF) for i in range(4)).strip("\x00").lower()
+
+
+def browser_playable(path: str | Path) -> bool:
+    return fourcc_of(path) in BROWSER_CODECS
+
+
+def open_browser_writer(stem: str | Path, fps: float, size: tuple[int, int]) -> tuple[cv2.VideoWriter, Path]:
+    """A VideoWriter whose output browsers can play; the extension depends on the codec found."""
+    stem = Path(stem)
+    for api, fourcc, ext in _BROWSER_WRITERS:
+        path = stem.with_suffix(ext)
+        writer = cv2.VideoWriter(str(path), api, cv2.VideoWriter_fourcc(*fourcc), fps, size)
+        if writer.isOpened():
+            return writer, path
+        writer.release()
+        path.unlink(missing_ok=True)
+    raise RuntimeError("no browser-compatible video encoder (H.264 via Media Foundation or VP9 via FFmpeg) is available")
+
+
+def make_browser_preview(src: str | Path, stem: str | Path, max_side: int = 854) -> Path:
+    """Re-encode a video for the web player (downscaled; analysis keeps using the original)."""
+    cap = cv2.VideoCapture(str(src))
+    fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
+    w, h = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    scale = min(1.0, max_side / max(w, h))
+    size = (int(w * scale) // 2 * 2, int(h * scale) // 2 * 2)  # encoders want even dimensions
+    writer, path = open_browser_writer(stem, fps, size)
+    try:
+        while True:
+            ok, frame = cap.read()
+            if not ok:
+                break
+            writer.write(frame if frame.shape[1::-1] == size else cv2.resize(frame, size, interpolation=cv2.INTER_AREA))
+    finally:
+        cap.release()
+        writer.release()
+    return path
+
+
 def resize_max_side(img: np.ndarray, max_side: int) -> np.ndarray:
     h, w = img.shape[:2]
     scale = max_side / max(h, w)

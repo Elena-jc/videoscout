@@ -18,6 +18,8 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from videoscout.video import open_browser_writer
+
 W, H, FPS, SCENE_SECONDS = 640, 360, 10, 40
 
 
@@ -121,8 +123,8 @@ def main() -> None:
         bus = bus if bus is not None else _placeholder("BUS STOP", (120, 80, 30))
         office = office if office is not None else _placeholder("OFFICE", (30, 80, 120))
 
-    video_path = out / "demo.mp4"
-    writer = cv2.VideoWriter(str(video_path), cv2.VideoWriter_fourcc(*"mp4v"), FPS, (W, H))
+    # H.264 (or VP9 WebM) so the same file plays in the browser UI.
+    writer, video_path = open_browser_writer(out / "demo", FPS, (W, H))
     for frames in (street_frames(bus), office_frames(office), gate_frames()):
         for frame in frames:
             writer.write(frame)
@@ -131,7 +133,7 @@ def main() -> None:
     (out / "demo.srt").write_text(SRT, encoding="utf-8")
     with open(out / "qa.jsonl", "w", encoding="utf-8") as f:
         for item in QA:
-            row = {**item, "video_id": "demo", "video_path": "demo.mp4", "subtitle_path": "demo.srt"}
+            row = {**item, "video_id": "demo", "video_path": video_path.name, "subtitle_path": "demo.srt"}
             f.write(json.dumps(row) + "\n")
     print(f"wrote {video_path}, {out / 'demo.srt'}, {out / 'qa.jsonl'}")
 

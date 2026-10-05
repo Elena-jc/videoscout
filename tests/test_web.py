@@ -124,8 +124,12 @@ def test_static_export_replays_recorded_runs(env):
     demo = json.loads((site / "demo.json").read_text(encoding="utf-8"))
     (recorded,) = demo["runs"]["tiny"]  # the failed run is left out
     assert [e["type"] for e in recorded["events"]] == ["start", "step", "step", "final"]
-    assert recorded["events"][-1]["correct"] is True and demo["videos"][0]["url"] == "media/tiny.mp4"
-    assert (site / "media" / "tiny.mp4").exists() and (site / ".nojekyll").exists()
+    assert recorded["events"][-1]["correct"] is True
+    # The tiny test video is OpenCV mp4v, which browsers cannot play: the export re-encodes it.
+    from videoscout.video import browser_playable
+
+    published = site / demo["videos"][0]["url"]
+    assert published.exists() and browser_playable(published) and (site / ".nojekyll").exists()
     assert 'window.VIDEOSCOUT_STATIC = "demo.json"' in (site / "index.html").read_text(encoding="utf-8")
 
 
@@ -146,3 +150,7 @@ def test_upload_indexes_the_video(env, monkeypatch, cfg):
     assert events[-1] == {**events[-1], "type": "done", "video_id": body["video_id"]}
     assert body["video_id"].startswith("my-clip-")
     assert body["video_id"] in {v["id"] for v in client.get("/api/videos").json()}
+    # The upload was mp4v, so indexing also wrote a browser preview, and that is what gets streamed.
+    preview = next((tmp_path / "indexes" / body["video_id"]).glob("preview.*"))
+    streamed = client.get(f"/api/videos/{body['video_id']}/stream")
+    assert streamed.status_code == 200 and streamed.content == preview.read_bytes()

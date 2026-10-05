@@ -28,7 +28,8 @@ def demo_index(tmp_path_factory):
     out = tmp_path_factory.mktemp("demo")
     subprocess.run([sys.executable, str(ROOT / "scripts" / "make_demo_video.py"), "--out", str(out)], check=True)
     cfg = load_config()
-    build_index(out / "demo.mp4", out / "index", cfg, srt_path=out / "demo.srt")
+    video = next(p for p in out.iterdir() if p.stem == "demo" and p.suffix in (".mp4", ".webm"))
+    build_index(video, out / "index", cfg, srt_path=out / "demo.srt")
     return VideoIndex(out / "index"), cfg
 
 
