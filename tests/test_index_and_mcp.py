@@ -34,7 +34,7 @@ def test_tools_on_real_index_with_fake_vision(tiny_index, cfg):
     index = VideoIndex(tiny_index)
     client = FakeAnthropic(vision_reply="Frame 00:12 shows a green screen.")
     tools = {t.name: t for t in build_tools(index, cfg, LLMVision(ClaudeLLM(cfg.models, cfg.pricing, client=client)))}
-    assert set(tools) == {"search_segments", "inspect_clip"}  # no tracks were built
+    assert set(tools) == {"browse_timeline", "search_segments", "inspect_clip"}  # no tracks were built
 
     out = tools["search_segments"].run({"query": "forklift driver"})
     assert not out.is_error and "00:10-00:20" in out.text and "text #1" in out.text
@@ -61,7 +61,7 @@ def test_find_objects_and_box_zoom(tiny_index, cfg):
     client = FakeAnthropic(vision_reply="A forklift carrying a pallet.")
     vision = LLMVision(ClaudeLLM(cfg.models, cfg.pricing, client=client))
     tools = {t.name: t for t in build_tools(index, cfg, vision, detector=FakeDetector())}
-    assert list(tools) == ["search_segments", "find_objects", "inspect_clip"]
+    assert list(tools) == ["browse_timeline", "search_segments", "find_objects", "inspect_clip"]
 
     found = tools["find_objects"].run({"names": ["forklift", "pallet"], "t_start": 0, "t_end": 20, "num_frames": 4})
     assert not found.is_error
@@ -78,11 +78,12 @@ def test_find_objects_and_box_zoom(tiny_index, cfg):
 
 
 def test_mcp_round_trip(tiny_index):
-    tools = MCPTools([sys.executable, "-m", "videoscout.tools.mcp_server", "--index", str(tiny_index)])
+    no_models = ["--set", "retrieval.rerank=false", "--set", "grounding.backend=yoloe"]
+    tools = MCPTools([sys.executable, "-m", "videoscout.tools.mcp_server", "--index", str(tiny_index), *no_models])
     try:
         names = [s["name"] for s in tools.schemas()]
-        assert names == ["search_segments", "find_objects", "inspect_clip"]  # detector loads lazily
-        search_schema = tools.schemas()[0]["input_schema"]
+        assert names == ["browse_timeline", "search_segments", "find_objects", "inspect_clip"]  # detector loads lazily
+        search_schema = tools.schemas()[1]["input_schema"]
         assert search_schema["required"] == ["query"]
 
         out = tools.call("search_segments", {"query": "delivery truck", "top_k": 2})

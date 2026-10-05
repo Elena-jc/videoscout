@@ -5,6 +5,8 @@ resumable: re-running the same command skips questions already in results.jsonl.
     python -m videoscout.eval.run --data data/demo/qa.jsonl --method agent --out runs/agent_noverify \
         --set agent.verify=false
     python -m videoscout.eval.run --data data/demo/qa.jsonl --method uniform --frames 32 --out runs/uniform32
+    python -m videoscout.eval.run --config configs/gemini.yaml --data data/lvbench/qa.jsonl \
+        --method gemini-native --processing agentic --out runs/lvb_gemini_agentic
 """
 
 from __future__ import annotations
@@ -56,8 +58,15 @@ def grounding(evidence: list[dict[str, Any]], gt_windows: list[list[float]]) -> 
 
 
 class Evaluator:
-    def __init__(self, cfg: Config, method: str, index_root: str, n_frames: int, with_subtitles: bool, build_missing: bool):
+    def __init__(self, cfg: Config, method: str, index_root: str, n_frames: int, with_subtitles: bool, build_missing: bool,
+                 processing: str = "agentic", fps: float | None = None):
         self.cfg = cfg
+        self.native = None
+        if method == "gemini-native":
+            from .gemini_native import GeminiNative
+
+            self.native = GeminiNative(cfg.models.planner, processing, fps,
+                                       daily_request_limit=cfg.models.daily_request_limit)
         self.method = method
         self.index_root = Path(index_root)
         self.n_frames = n_frames
@@ -87,7 +96,7 @@ class Evaluator:
         record: dict[str, Any] = {
             "qid": item.qid, "video_id": item.video_id, "task_type": item.task_type,
             "method": self.method, "gold": item.answer,
-            "model": self.cfg.models.planner if self.method == "agent" else self.cfg.models.vision,
+            "model": self.cfg.models.vision if self.method == "uniform" else self.cfg.models.planner,
         }
         trace: dict[str, Any] = {"question": item.question, "options": item.options, "gold": item.answer}
         try:
@@ -131,6 +140,20 @@ class Evaluator:
                     llm_turns=1,
                 )
                 trace.update(result=result)
+            elif self.method == "gemini-native":
+                result = self.native.ask(item.video_path, item.question, item.options)
+                record.update(
+                    pred=result["answer"],
+                    confidence=result["confidence"],
+                    self_confidence=result["self_confidence"],
+                    accepted=result["confidence"] >= self.cfg.agent.confidence_threshold,
+                    forced=False,
+                    tool_calls=0,
+                    frames=None,  # chosen by Gemini itself
+                    llm_turns=1,
+                    processing=result["processing"],
+                )
+                trace.update(result=result)
             else:
                 raise ValueError(f"unknown method {self.method!r}")
         except Exception as err:
@@ -145,6 +168,9 @@ class Evaluator:
             llm_calls=usage["calls"], cost_usd=usage["cost_usd"], input_tokens=usage["input_tokens"],
             output_tokens=usage["output_tokens"], cache_read_tokens=usage["cache_read_tokens"],
         )
+        if self.method == "gemini-native" and "result" in trace:  # not metered by the LLM client
+            native = trace["result"]
+            record.update(llm_calls=1, input_tokens=native["input_tokens"], output_tokens=native["output_tokens"])
         trace["record"] = record
         return record, trace
 
@@ -155,7 +181,10 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--data", required=True)
     parser.add_argument("--out", required=True)
-    parser.add_argument("--method", default="agent", choices=["agent", "uniform"])
+    parser.add_argument("--method", default="agent", choices=["agent", "uniform", "gemini-native"])
+    parser.add_argument("--processing", default="agentic", choices=["agentic", "static"],
+                        help="gemini-native: Gemini's agentic video processing or static frame sampling")
+    parser.add_argument("--fps", type=float, help="gemini-native static: frames per second (default: Gemini's 1 fps)")
     parser.add_argument("--index-root", default="indexes")
     parser.add_argument("--frames", type=int, default=32, help="frames for the uniform baseline")
     parser.add_argument("--with-subtitles", action="store_true", help="give the uniform baseline the subtitles")
@@ -171,7 +200,8 @@ def main() -> None:
     out = Path(args.out)
     (out / "traces").mkdir(parents=True, exist_ok=True)
     (out / "config.json").write_text(
-        json.dumps({"method": args.method, "frames": args.frames, "overrides": args.overrides, "config": cfg.to_dict()}, indent=2),
+        json.dumps({"method": args.method, "frames": args.frames, "processing": args.processing, "fps": args.fps,
+                    "overrides": args.overrides, "config": cfg.to_dict()}, indent=2),
         encoding="utf-8",
     )
 
@@ -181,7 +211,8 @@ def main() -> None:
     pending = [it for it in items if it.qid not in done]
     print(f"{len(items)} questions, {len(done)} already done, {len(pending)} to run")
 
-    evaluator = Evaluator(cfg, args.method, args.index_root, args.frames, args.with_subtitles, args.build_missing)
+    evaluator = Evaluator(cfg, args.method, args.index_root, args.frames, args.with_subtitles, args.build_missing,
+                          args.processing, args.fps)
     write_lock = threading.Lock()
     with ThreadPoolExecutor(max_workers=max(1, args.workers)) as pool:
         futures = {pool.submit(evaluator.evaluate, it): it for it in pending}

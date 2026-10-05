@@ -122,7 +122,15 @@ class FakeTools:
 
 @pytest.fixture
 def cfg():
-    return load_config()
+    """Default config with every local model that would need weights switched off;
+    tests inject fakes where they need one."""
+    cfg = load_config()
+    cfg.index.captioner = "none"
+    cfg.index.clip_embedder = ""
+    cfg.index.siglip_model = ""
+    cfg.retrieval.rerank = False
+    cfg.grounding.backend = "yoloe"
+    return cfg
 
 
 def write_tiny_video(path: Path, seconds: int = 25, fps: int = 5, size: int = 64) -> Path:

@@ -36,7 +36,11 @@ index = [
     # text encoder tokenizer for YOLOE open-vocabulary prompts
     "clip @ git+https://github.com/ultralytics/CLIP.git",
     "ftfy>=6",
-    "transformers>=4.45",
+    # Qwen3-VL (embedder, reranker, captioner) and SAM 3 need transformers 5
+    "transformers>=5.0",
+    "sentence-transformers>=5.1",
+    "accelerate>=1.0",
+    "qwen-vl-utils>=0.0.14",
     "sentencepiece>=0.2",
     "protobuf>=4",
 ]

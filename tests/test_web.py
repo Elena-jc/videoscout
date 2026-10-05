@@ -14,6 +14,9 @@ from videoscout.index.build import build_index
 from videoscout.llm import ClaudeLLM
 from videoscout.web.app import create_app
 
+# Keep the 2B local models (captioner, clip embedder, reranker) and SAM 3 out of the tests.
+NO_LOCAL_MODELS = ["index.captioner=none", "index.clip_embedder=", "retrieval.rerank=false", "grounding.backend=yoloe"]
+
 SUBMIT = {"answer": "B", "confidence": 0.8, "rationale": "The subtitles mention a forklift.",
           "evidence": [{"t_start": 10, "t_end": 20, "observation": "forklift driver waves"}]}
 
@@ -51,7 +54,7 @@ def env(tmp_path, cfg):
         clients.append(client)
         return ClaudeLLM(models, pricing, client=client)
 
-    app = create_app(index_root, tmp_path / "uploads", tmp_path / "runs", llm_factory=llm_factory)
+    app = create_app(index_root, tmp_path / "uploads", tmp_path / "runs", llm_factory=llm_factory, overrides=NO_LOCAL_MODELS)
     return TestClient(app), tmp_path
 
 
@@ -88,7 +91,8 @@ def test_missing_key_becomes_an_error_event(env, monkeypatch):
 
     _, tmp_path = env
     # The real Gemini backend: with no key it fails before any network call.
-    app = create_app(tmp_path / "indexes", tmp_path / "uploads", tmp_path / "runs", llm_factory=make_llm)
+    app = create_app(tmp_path / "indexes", tmp_path / "uploads", tmp_path / "runs", llm_factory=make_llm,
+                     overrides=NO_LOCAL_MODELS)
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)  # create_app may have loaded one from .env
     real = TestClient(app)
     job = real.post("/api/ask", json={"video_id": "tiny", "question": "?", "provider": "gemini"}).json()

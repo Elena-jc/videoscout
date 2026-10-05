@@ -88,6 +88,7 @@ Tables:
   detections(track_id, t, x1, y1, x2, y2, conf)
       one row per object per sampled frame (about {track_fps:g} frames per second)
   segments(seg_id, t_start, t_end, subtitle, objects, caption)
+  events(event_id, t_start, t_end, seg_first, seg_last, summary)
 
 Caveats: track IDs can switch or fragment under occlusion, so COUNT(DISTINCT track_id) over-counts objects. \
 Short, low-confidence tracks (mean_conf < 0.5) are often duplicate boxes on an object that is already tracked. \

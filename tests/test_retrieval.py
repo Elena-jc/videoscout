@@ -71,6 +71,7 @@ def test_hybrid_retriever_fuses_dense_maxsim(tmp_path):
     index.kf_times = np.arange(10) * 5.0 + 2.5
     index.kf_emb = np.tile(np.array([[1.0, 0.0]], np.float32), (10, 1))
     index.kf_emb[5] = [0.0, 1.0]
+    index.meta["siglip_model"] = "fake-siglip"
     retriever = HybridRetriever(index, RetrievalConfig(), embedder_factory=lambda: _FakeEmbedder())
     top = retriever.search("xyzzy", visual_query="two people talking", top_k=1)[0]
     assert top.seg_id == 2 and top.dense_rank == 1 and top.best_frame_t == 27.5

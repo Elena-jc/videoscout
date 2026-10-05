@@ -72,6 +72,11 @@ def summarize(records: list[dict[str, Any]]) -> dict[str, Any]:
     def mean(key: str) -> float:
         return round(sum(r.get(key) or 0 for r in records) / n, 4)
 
+    def mean_known(key: str) -> float | None:
+        """Mean over records that report the field (Gemini-native runs do not count frames)."""
+        known = [r[key] for r in records if r.get(key) is not None]
+        return round(sum(known) / len(known), 4) if known else None
+
     correct = sum(bool(r.get("correct")) for r in records)
     accepted = [r for r in records if r.get("accepted")]
     wrong = [r for r in records if not r.get("correct")]
@@ -88,7 +93,8 @@ def summarize(records: list[dict[str, Any]]) -> dict[str, Any]:
         ),
         "forced_rate": round(sum(1 for r in records if r.get("forced")) / n, 4),
         "avg_tool_calls": mean("tool_calls"),
-        "avg_frames": mean("frames"),
+        "avg_frames": mean_known("frames"),
+        "avg_input_tokens": mean("input_tokens"),
         "avg_llm_calls": mean("llm_calls"),
         "avg_latency_s": mean("latency_s"),
         "avg_cost_usd": mean("cost_usd"),
@@ -127,15 +133,20 @@ def _pct(x: Any) -> str:
     return "-" if x is None else f"{100 * x:.1f}"
 
 
+def _num(x: Any) -> str:
+    return "-" if x is None else f"{x:.1f}"
+
+
 def comparison_table(runs: dict[str, dict[str, Any]]) -> str:
     header = (
         "| run | n | acc % | selective acc % | coverage % | ECE | avg tool calls | avg frames "
-        "| avg latency s | avg cost $ |\n|---|---|---|---|---|---|---|---|---|---|"
+        "| avg input tokens | avg latency s | avg cost $ |\n|---|---|---|---|---|---|---|---|---|---|---|"
     )
     rows = [
         f"| {name} | {s['n']} | {_pct(s.get('accuracy'))} | {_pct(s.get('selective_accuracy'))} | "
         f"{_pct(s.get('coverage'))} | {s.get('ece') if s.get('ece') is not None else '-'} | "
-        f"{s.get('avg_tool_calls', 0):.1f} | {s.get('avg_frames', 0):.1f} | {s.get('avg_latency_s', 0):.1f} | "
+        f"{s.get('avg_tool_calls', 0):.1f} | {_num(s.get('avg_frames'))} | "
+        f"{s.get('avg_input_tokens') or 0:,.0f} | {s.get('avg_latency_s', 0):.1f} | "
         f"{s.get('avg_cost_usd', 0):.4f} |"
         for name, s in runs.items()
         if s.get("n")

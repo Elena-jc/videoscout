@@ -1,11 +1,12 @@
 """find_objects: open-vocabulary detection at question time.
 
 The offline index only knows the 80 COCO classes its closed-set detector was
-trained on. Questions name anything ("red jacket", "forklift", "price tag"), so
-this tool runs YOLOE-26, which takes the class names as text prompts (encoded by
-MobileCLIP2), on frames from a time window, and returns where those objects are.
-It runs locally, so it costs a tool call but no API tokens or frame budget, and
-the boxes it returns can be handed to inspect_clip to zoom in.
+trained on: a cheap, always-on first tier. Questions name anything ("red jacket",
+"forklift", "price tag"), so this tool runs a heavier open-vocabulary model on
+demand, on one time window: SAM 3 concept tracking when its weights are available
+(identities across frames, see concepts.py), else YOLOE-26 per-frame detection with
+text prompts encoded by MobileCLIP2. Both run locally, so the tool costs a tool call
+but no API tokens or frame budget, and the boxes can be handed to inspect_clip.
 """
 
 from __future__ import annotations
@@ -118,22 +119,53 @@ def format_detections(times: list[float], per_frame: list[list[Detection]], name
     return "\n".join(lines)
 
 
+SAM3_DESCRIPTION = """Find and TRACK objects described in words (open-vocabulary) in a time window, e.g. \
+names=['man in a suit', 'red car', 'forklift']. Frames are sampled evenly from [t_start, t_end] and SAM 3 \
+segments every instance of each phrase and keeps its identity across frames. Returns, per name, the number of \
+distinct instances, the most visible at once, when each instance is visible, and a box as normalized [x1, y1, x2, y2].
+Use it for counting distinct objects, for how long or when something is visible, for objects outside the tracked \
+COCO classes, and to get a box to pass to inspect_clip. It runs locally and does not use the frame budget, but it \
+is slower than other tools: keep windows short (under about a minute) and use 1-3 precise noun phrases. \
+Results are candidates: confirm important ones with inspect_clip."""
+
+
+class TrackObjectsArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    names: list[str] = Field(description="1-3 short noun phrases to track, e.g. ['man in a suit', 'red car'].")
+    t_start: float = Field(description="Window start in seconds.")
+    t_end: float = Field(description="Window end in seconds (keep windows short).")
+    num_frames: Optional[int] = Field(None, description="Frames to track through, 2-32 (default 16).")
+
+
 def make_find_objects_tool(
-    index: VideoIndex, reader: VideoReader, detector: OpenVocabDetector, max_frames: int, default_frames: int
+    index: VideoIndex, reader: VideoReader, detector, max_frames: int, default_frames: int
 ) -> Tool:
-    def run(args: FindObjectsArgs) -> str:
-        names = [n.strip() for n in args.names if n.strip()][:MAX_NAMES]
+    """`detector` is an OpenVocabDetector (YOLOE, per-frame boxes) or a
+    concepts.Sam3ConceptTracker (SAM 3, instances tracked across frames)."""
+    sam3 = getattr(detector, "kind", "") == "sam3"
+    max_names = 3 if sam3 else MAX_NAMES
+
+    def run(args) -> str:
+        names = [n.strip() for n in args.names if n.strip()][:max_names]
         if not names:
             raise ToolError("Give at least one object name.")
         t0 = max(0.0, min(args.t_start, args.t_end))
         t1 = min(index.duration, max(args.t_start, args.t_end))
         if t0 >= index.duration:
             raise ToolError(f"The window starts after the end of the video ({index.duration:.1f}s).")
-        n = min(max(args.num_frames or default_frames, 1), max_frames)
+        n = min(max(args.num_frames or default_frames, 2 if sam3 else 1), max_frames)
         frames = reader.sample(t0, t1, n)
         if not frames:
             raise ToolError("Could not decode frames in this window.")
-        per_frame = detector.detect([img for _, img in frames], names)
-        return format_detections([t for t, _ in frames], per_frame, names, t0, t1)
+        times = [t for t, _ in frames]
+        if sam3:
+            from .concepts import format_tracks
 
+            return format_tracks(times, detector.track([img for _, img in frames], names), names, t0, t1)
+        per_frame = detector.detect([img for _, img in frames], names)
+        return format_detections(times, per_frame, names, t0, t1)
+
+    if sam3:
+        return Tool("find_objects", SAM3_DESCRIPTION, TrackObjectsArgs, run)
     return Tool("find_objects", DESCRIPTION, FindObjectsArgs, run)

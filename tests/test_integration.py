@@ -1,5 +1,6 @@
-"""End-to-end indexing with real models (YOLO11n + ByteTrack, SigLIP) on the demo
-video. Excluded by default; run with `pytest -m integration`. No API calls."""
+"""End-to-end indexing with the real local models (YOLO26 + ByteTrack, SigLIP 2,
+Qwen3-VL captioner and clip embedder, YOLOE-26) on the demo video. Excluded by
+default; run with `pytest -m integration`. No API calls."""
 
 from __future__ import annotations
 
@@ -36,9 +37,9 @@ def demo_index(tmp_path_factory):
 def test_tracking_finds_people_and_the_bus(demo_index):
     index, _ = demo_index
     assert "person" in index.label_counts and "bus" in index.label_counts
-    # When the camera zooms in, YOLO11n also puts a second, low-confidence box on one of
-    # the men (a duplicate track), so the raw peak is 3. Filtering weak tracks, as the
-    # query_tracks description tells the agent to do, gives the true count.
+    # Detectors sometimes put a second, low-confidence box on one of the men (a
+    # duplicate track). Filtering weak tracks, as the query_tracks description tells
+    # the agent to do, gives the true count.
     sql = (
         "SELECT MAX(n) FROM (SELECT t, COUNT(*) AS n FROM detections JOIN tracks USING(track_id) "
         "WHERE label='person' AND mean_conf >= 0.5 AND t BETWEEN 40 AND 80 GROUP BY t)"

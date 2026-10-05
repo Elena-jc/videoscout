@@ -1,13 +1,20 @@
-"""Hybrid segment retrieval: dense (SigLIP) + sparse (BM25), fused with RRF,
-diversified with temporal MMR.
+"""Hybrid clip retrieval: dense + sparse candidates, fused with RRF, reranked by a
+cross-encoder, diversified with temporal MMR.
 
 Why each piece exists:
-- Dense text->image similarity finds visual content nobody talked about.
+- Dense retrieval finds visual content nobody talked about. Two encoders are
+  supported: Qwen3-VL-Embedding embeds each clip as a short video plus its text
+  (default), SigLIP 2 embeds single keyframes (a segment scores as its best frame,
+  MaxSim); the second is kept as an ablation baseline.
 - BM25 over subtitles / object tags / captions finds exact words, names and text
   that embeddings blur.
-- Reciprocal Rank Fusion combines the two rankings without calibrating their
-  scores against each other (cosine similarity and BM25 live on different scales).
-- MMR stops the top-k from being five adjacent 10-second windows of the same event.
+- Reciprocal Rank Fusion combines the rankings without calibrating their scores
+  against each other (cosine similarity and BM25 live on different scales).
+- A bi-encoder compares two independently computed vectors, so it is fast but
+  coarse. The reranker (Qwen3-VL-Reranker) reads the query and each candidate clip
+  together; it is too slow for every clip, so it only reorders the top of the fused
+  list: the standard retrieve-then-rerank split.
+- MMR stops the top-k from being five adjacent windows of the same event.
 """
 
 from __future__ import annotations
@@ -33,6 +40,21 @@ class Hit:
     text_rank: int | None
     best_frame_t: float | None
     text: str
+    rerank_rank: int | None = None
+    rerank_score: float | None = None
+
+
+def dense_kind(index: VideoIndex, cfg: RetrievalConfig) -> str | None:
+    """Which dense index a search uses: 'clip', 'keyframe' or None."""
+    if not cfg.use_dense or cfg.dense == "none":
+        return None
+    has_clip = index.clip_emb.size > 0 and bool(index.meta.get("clip_embedder"))
+    has_keyframe = index.kf_emb.size > 0 and bool(index.meta.get("siglip_model"))
+    if cfg.dense == "clip":
+        return "clip" if has_clip else None
+    if cfg.dense == "keyframe":
+        return "keyframe" if has_keyframe else None
+    return "clip" if has_clip else "keyframe" if has_keyframe else None
 
 
 def rrf(rankings: Sequence[Sequence[int]], k: int = 60) -> dict[int, float]:
@@ -71,19 +93,37 @@ def mmr(
 
 
 class HybridRetriever:
-    def __init__(self, index: VideoIndex, cfg: RetrievalConfig, embedder_factory: Callable[[], object] | None = None):
+    def __init__(
+        self,
+        index: VideoIndex,
+        cfg: RetrievalConfig,
+        embedder_factory: Callable[[], object] | None = None,
+        reranker_factory: Callable[[], object] | None = None,
+    ):
+        """`embedder_factory` returns the text encoder matching dense_kind(index, cfg)
+        (embed_text); `reranker_factory` returns an object with score(query, clips)."""
         self.index = index
         self.cfg = cfg
+        self.kind = dense_kind(index, cfg)
         self._embedder_factory = embedder_factory
+        self._reranker_factory = reranker_factory
         self.bm25 = BM25([seg.document for seg in index.segments])
         self.centers = {s.seg_id: (s.t_start + s.t_end) / 2 for s in index.segments}
 
     @property
     def dense_available(self) -> bool:
-        return self.cfg.use_dense and self.index.kf_emb.size > 0 and self._embedder_factory is not None
+        return self.kind is not None and self._embedder_factory is not None
+
+    @property
+    def rerank_available(self) -> bool:
+        return self.cfg.rerank and self._reranker_factory is not None
 
     def _dense_ranking(self, text: str, allowed: np.ndarray) -> tuple[list[int], dict[int, float]]:
         q = self._embedder_factory().embed_text([text])[0]
+        if self.kind == "clip":
+            sims = self.index.clip_emb @ q
+            order = [int(i) for i in np.argsort(-sims) if allowed[i]]
+            return order[: self.cfg.candidate_pool], {}
         sims = self.index.kf_emb @ q
         # Late interaction: a segment scores as its best-matching keyframe (MaxSim).
         best = np.full(len(self.index.segments), -np.inf)
@@ -99,6 +139,13 @@ class HybridRetriever:
         scores = self.bm25.scores(text)
         order = [int(i) for i in np.argsort(-scores, kind="stable") if allowed[i] and scores[i] > 0]
         return order[: self.cfg.candidate_pool]
+
+    def _rerank(self, query: str, pool: list[int]) -> dict[int, float]:
+        top = pool[: self.cfg.rerank_top_n]
+        segs = self.index.segments
+        clips = [([img for _, img in self.index.clip_thumbs(s, self.cfg.rerank_frames)], segs[s].document) for s in top]
+        scores = self._reranker_factory().score(query, clips)
+        return dict(zip(top, scores))
 
     def search(
         self,
@@ -128,20 +175,29 @@ class HybridRetriever:
 
         fused = rrf(rankings, k=self.cfg.rrf_k)
         pool = sorted(fused, key=fused.get, reverse=True)[: self.cfg.candidate_pool]
-        chosen = mmr(pool, fused, self.centers, k=top_k, lam=self.cfg.mmr_lambda, tau=self.cfg.mmr_tau_seconds)
+        relevance: dict[int, float] = fused
+        reranked: dict[int, float] = {}
+        if self.rerank_available and pool:
+            rerank_query = query if not visual_query or visual_query == query else f"{query}. It looks like: {visual_query}"
+            reranked = self._rerank(rerank_query, pool)
+            pool, relevance = list(reranked), reranked
+        chosen = mmr(pool, relevance, self.centers, k=top_k, lam=self.cfg.mmr_lambda, tau=self.cfg.mmr_tau_seconds)
 
         dense_rank = {s: r for r, s in enumerate(dense_order, start=1)}
         text_rank = {s: r for r, s in enumerate(text_order, start=1)}
+        rerank_rank = {s: r for r, s in enumerate(sorted(reranked, key=reranked.get, reverse=True), start=1)}
         return [
             Hit(
                 seg_id=s,
                 t_start=segs[s].t_start,
                 t_end=segs[s].t_end,
-                score=fused[s],
+                score=relevance[s],
                 dense_rank=dense_rank.get(s),
                 text_rank=text_rank.get(s),
                 best_frame_t=best_t.get(s),
                 text=segs[s].document,
+                rerank_rank=rerank_rank.get(s),
+                rerank_score=reranked.get(s),
             )
             for s in chosen
         ]

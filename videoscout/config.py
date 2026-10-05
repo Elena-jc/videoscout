@@ -72,18 +72,28 @@ class IndexConfig:
     yolo_weights: str = "yolo26s.pt"
     yolo_conf: float = 0.3
     tracker: str = "bytetrack.yaml"  # or botsort.yaml (camera-motion compensation, fewer ID switches)
-    siglip_model: str = "google/siglip2-so400m-patch14-384"
+    siglip_model: str = "google/siglip2-so400m-patch14-384"  # frame-level embeddings ("" to skip)
+    clip_embedder: str = "Qwen/Qwen3-VL-Embedding-2B"  # clip-level embeddings ("" to skip)
+    clip_frames: int = 4  # thumbnails kept per clip (embedding, captions, reranking)
+    captioner: str = "local"  # local (Qwen3-VL on this GPU) | llm (the API captioner role) | none
+    captioner_model: str = "Qwen/Qwen3-VL-2B-Instruct"
+    caption_mode: str = "batch"  # llm captioner only: batch | sync
+    event_min_seconds: float = 20.0
+    event_max_seconds: float = 180.0
     device: str = "auto"
-    caption: bool = False
-    caption_mode: str = "batch"
 
 
 @dataclass
 class RetrievalConfig:
     use_dense: bool = True
+    dense: str = "auto"  # auto (clip if indexed, else keyframe) | clip | keyframe
     use_bm25: bool = True
     rrf_k: int = 60
     candidate_pool: int = 40
+    rerank: bool = True
+    reranker_model: str = "Qwen/Qwen3-VL-Reranker-2B"
+    rerank_top_n: int = 20
+    rerank_frames: int = 3
     mmr_lambda: float = 0.7
     mmr_tau_seconds: float = 30.0
 
@@ -92,7 +102,10 @@ class RetrievalConfig:
 class GroundingConfig:
     """Open-vocabulary detector behind the find_objects tool (query time)."""
 
-    weights: str = "yoloe-26s-seg.pt"  # empty string disables the tool
+    backend: str = "auto"  # auto (SAM 3 if its weights are downloaded, else YOLOE) | sam3 | yoloe
+    sam3_model: str = "facebook/sam3"
+    sam3_max_frames: int = 32
+    weights: str = "yoloe-26s-seg.pt"  # YOLOE weights; empty string disables the tool
     conf: float = 0.25
     max_frames: int = 16
     default_frames: int = 8

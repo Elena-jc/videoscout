@@ -26,7 +26,7 @@ from ..index.store import VideoIndex
 from ..llm import make_llm
 from ..schema import to_api_schema
 from ..vision import LLMVision
-from . import build_tools, default_detector, default_embedder_factory
+from . import default_tools
 
 
 def _text_result(text: str, is_error: bool = False) -> types.CallToolResult:
@@ -37,10 +37,7 @@ def create_server(index_dir: str, overrides: list[str] | None = None, config_pat
     cfg = load_config(config_path, overrides)
     index = VideoIndex(index_dir)
     vision = LLMVision(make_llm(cfg.models, cfg.pricing))
-    tools = {
-        t.name: t
-        for t in build_tools(index, cfg, vision, default_embedder_factory(index, cfg), default_detector(cfg))
-    }
+    tools = {t.name: t for t in default_tools(index, cfg, vision)}
     listing = types.ListToolsResult(
         tools=[
             types.Tool(name=t.name, description=t.description, input_schema=to_api_schema(t.args_model))

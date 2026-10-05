@@ -48,9 +48,9 @@ def cmd_index(args: argparse.Namespace) -> None:
     from .llm import make_llm
 
     cfg = load_config(args.config, args.overrides)
-    if args.caption:
-        cfg.index.caption = True
-    llm = make_llm(cfg.models, cfg.pricing) if cfg.index.caption else None
+    if args.captioner:
+        cfg.index.captioner = args.captioner
+    llm = make_llm(cfg.models, cfg.pricing) if cfg.index.captioner == "llm" else None
     build_index(args.video, args.out, cfg, srt_path=args.srt, with_dense=not args.no_dense,
                 with_tracks=not args.no_tracks, llm=llm)
 
@@ -105,8 +105,9 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("video")
     p.add_argument("--out", required=True)
     p.add_argument("--srt", help="subtitle file")
-    p.add_argument("--caption", action="store_true", help="add VLM captions (costs API calls)")
-    p.add_argument("--no-dense", action="store_true", help="skip SigLIP embeddings")
+    p.add_argument("--captioner", choices=["local", "llm", "none"],
+                   help="clip captions: local Qwen3-VL (default, free), llm (API captioner role), none")
+    p.add_argument("--no-dense", action="store_true", help="skip clip and keyframe embeddings")
     p.add_argument("--no-tracks", action="store_true", help="skip detection and tracking")
     _common(p)
     p.set_defaults(func=cmd_index)

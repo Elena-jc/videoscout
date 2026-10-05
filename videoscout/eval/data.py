@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import json
 import random
+import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -125,17 +126,110 @@ def convert_videomme(
     return items
 
 
+_TIMESTAMP = r"\d{1,2}(?::\d{2}){1,2}"
+_SPAN = re.compile(rf"({_TIMESTAMP})\s*-\s*({_TIMESTAMP})")
+_OPTION = re.compile(r"^\(([A-Z])\)\s*(.*)$")
+
+
+def _seconds(ts: str) -> float:
+    value = 0.0
+    for part in ts.split(":"):
+        value = value * 60 + float(part)
+    return value
+
+
+def parse_time_reference(text: str) -> list[list[float]]:
+    """LVBench time_reference, e.g. '00:15-00:19' or '1:02:03-1:03:00, 1:10:00-1:11:00'."""
+    return [[_seconds(a), _seconds(b)] for a, b in _SPAN.findall(text or "")]
+
+
+def split_lvbench_question(text: str) -> tuple[str, list[str]]:
+    """'What year...?\n(A) 1636\n(B) 1366' -> ('What year...?', ['A. 1636', 'B. 1366'])."""
+    stem, options = [], []
+    for line in text.splitlines():
+        m = _OPTION.match(line.strip())
+        if m:
+            options.append(f"{m.group(1)}. {m.group(2).strip()}")
+        elif options:  # an option that wraps onto the next line
+            options[-1] += " " + line.strip()
+        elif line.strip():
+            stem.append(line.strip())
+    return " ".join(stem), options
+
+
+def convert_lvbench(
+    meta: str | Path,
+    video_dir: str | Path,
+    out: str | Path,
+    max_videos: int | None = None,
+    per_video: int | None = None,
+    seed: int = 0,
+    keys: list[str] | None = None,
+) -> list[QAItem]:
+    """Convert LVBench (zai-org/LVBench video_info.meta.jsonl) to our JSONL.
+
+    Videos are YouTube ids (`key`); only videos found in `video_dir` are kept. Each
+    question's time_reference becomes gt_windows, so the evaluator can score whether
+    the agent searched / looked at the right moment.
+    """
+    rows = [json.loads(line) for line in Path(meta).read_text(encoding="utf-8").splitlines() if line.strip()]
+    if keys:
+        wanted = set(keys)
+        rows = [r for r in rows if r["key"] in wanted]
+    video_dir, rng = Path(video_dir), random.Random(seed)
+    available = [r for r in rows if _find_video(video_dir, r["key"])]
+    if max_videos:
+        available = sorted(rng.sample(available, min(max_videos, len(available))), key=lambda r: r["key"])
+    items = []
+    for row in available:
+        qa = list(row["qa"])
+        if per_video and len(qa) > per_video:
+            qa = sorted(rng.sample(qa, per_video), key=lambda q: str(q["uid"]))
+        for q in qa:
+            question, options = split_lvbench_question(q["question"])
+            items.append(QAItem(
+                qid=f"lvb-{q['uid']}",
+                video_id=row["key"],
+                question=question,
+                options=options,
+                answer=str(q["answer"]).strip().upper(),
+                video_path=_find_video(video_dir, row["key"]),
+                task_type=",".join(q.get("question_type") or []) or None,
+                gt_windows=parse_time_reference(q.get("time_reference", "")) or None,
+                extra={"video_type": row.get("type")},
+            ))
+    save_items(items, out)
+    print(f"wrote {len(items)} questions from {len(available)} videos to {out} "
+          f"({len(rows) - len([r for r in rows if _find_video(video_dir, r['key'])])} videos not downloaded)")
+    return items
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Convert Video-MME annotations to VideoScout JSONL")
-    parser.add_argument("--parquet", required=True)
-    parser.add_argument("--video-dir", required=True)
-    parser.add_argument("--subtitle-dir")
-    parser.add_argument("--out", required=True)
-    parser.add_argument("--duration", default="long", choices=["short", "medium", "long", "all"])
-    parser.add_argument("--max-videos", type=int)
-    parser.add_argument("--seed", type=int, default=0)
+    parser = argparse.ArgumentParser(description="Convert benchmark annotations to VideoScout JSONL")
+    sub = parser.add_subparsers(dest="benchmark", required=True)
+
+    p = sub.add_parser("videomme", help="Video-MME (lmms-lab/Video-MME parquet)")
+    p.add_argument("--parquet", required=True)
+    p.add_argument("--video-dir", required=True)
+    p.add_argument("--subtitle-dir")
+    p.add_argument("--out", required=True)
+    p.add_argument("--duration", default="long", choices=["short", "medium", "long", "all"])
+    p.add_argument("--max-videos", type=int)
+    p.add_argument("--seed", type=int, default=0)
+
+    p = sub.add_parser("lvbench", help="LVBench (zai-org/LVBench video_info.meta.jsonl)")
+    p.add_argument("--meta", required=True)
+    p.add_argument("--video-dir", required=True)
+    p.add_argument("--out", required=True)
+    p.add_argument("--max-videos", type=int)
+    p.add_argument("--per-video", type=int, help="sample at most this many questions per video")
+    p.add_argument("--seed", type=int, default=0)
+
     a = parser.parse_args()
-    convert_videomme(a.parquet, a.video_dir, a.out, a.subtitle_dir, a.duration, a.max_videos, a.seed)
+    if a.benchmark == "videomme":
+        convert_videomme(a.parquet, a.video_dir, a.out, a.subtitle_dir, a.duration, a.max_videos, a.seed)
+    else:
+        convert_lvbench(a.meta, a.video_dir, a.out, a.max_videos, a.per_video, a.seed)
 
 
 if __name__ == "__main__":

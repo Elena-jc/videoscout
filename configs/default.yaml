@@ -20,31 +20,50 @@ models:
   daily_cost_limit_usd: 3.0
 
 index:
-  segment_seconds: 10.0      # retrieval unit ("chunk size" for video)
-  keyframe_every: 2.0        # SigLIP keyframe spacing inside a segment
+  segment_seconds: 10.0      # clip length: the retrieval unit ("chunk size" for video)
+  keyframe_every: 2.0        # SigLIP keyframe spacing inside a clip
   track_fps: 2.0             # frames per second fed to the detector + tracker
-  yolo_weights: yolo26s.pt   # YOLO26: end-to-end (NMS-free); n/s/m/l/x trade speed for accuracy
+  yolo_weights: yolo26s.pt   # YOLO26: cheap always-on tier (COCO classes, NMS-free); n/s/m/l/x
   yolo_conf: 0.3
   tracker: bytetrack.yaml    # or botsort.yaml (camera-motion compensation)
-  # SigLIP 2 (2025): better text->image retrieval than SigLIP, multilingual queries.
-  # On CPU only, use google/siglip2-base-patch16-224 (4x smaller).
+  # Frame-level embeddings (SigLIP 2). Kept as the ablation baseline for clip embeddings;
+  # set to "" to skip. On CPU only, use google/siglip2-base-patch16-224.
   siglip_model: google/siglip2-so400m-patch14-384
+  # Clip-level multimodal embeddings (Qwen3-VL-Embedding, 2026): a clip's frames and its
+  # text in one vector. "" to skip.
+  clip_embedder: Qwen/Qwen3-VL-Embedding-2B
+  clip_frames: 4             # thumbnails per clip (embedding, captions, reranking)
+  # Clip captions + event summaries + storyline (the text memory):
+  #   local = Qwen3-VL-2B on this GPU (free), llm = the API captioner role, none
+  captioner: local
+  captioner_model: Qwen/Qwen3-VL-2B-Instruct
+  caption_mode: batch        # llm captioner only: batch (Batches API, 50% cheaper) | sync
+  event_min_seconds: 20.0    # events: runs of clips cut where the content changes
+  event_max_seconds: 180.0
   device: auto               # auto | cpu | cuda
-  caption: false             # VLM captions per segment (extra cost, better text recall)
-  caption_mode: batch        # batch (Batches API, 50% cheaper, async) | sync
 
 retrieval:
   use_dense: true
+  dense: auto                # auto (clip if indexed, else keyframe) | clip | keyframe
   use_bm25: true
   rrf_k: 60
   candidate_pool: 40
+  rerank: true               # Qwen3-VL-Reranker cross-encoder over the fused top candidates
+  reranker_model: Qwen/Qwen3-VL-Reranker-2B
+  rerank_top_n: 20
+  rerank_frames: 3
   mmr_lambda: 0.7
   mmr_tau_seconds: 30.0
 
 grounding:
-  # YOLOE-26: open-vocabulary detection from text prompts ("red jacket", "forklift"),
-  # used by the find_objects tool at question time. Empty string disables the tool.
-  weights: yoloe-26s-seg.pt
+  # find_objects at question time. SAM 3 tracks every instance of a noun phrase through
+  # the window (identities kept); its weights are gated (request access to facebook/sam3
+  # on Hugging Face, put HF_TOKEN in .env, download once). Until then YOLOE-26 is used:
+  # per-frame open-vocabulary boxes from text prompts.
+  backend: auto              # auto | sam3 | yoloe
+  sam3_model: facebook/sam3
+  sam3_max_frames: 32
+  weights: yoloe-26s-seg.pt  # YOLOE; "" disables the YOLOE fallback
   conf: 0.25
   max_frames: 16
   default_frames: 8

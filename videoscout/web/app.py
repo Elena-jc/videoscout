@@ -82,7 +82,10 @@ def create_app(
     runs_root: Path | None = None,
     llm_factory=make_llm,
     warmup: bool = False,
+    overrides: list[str] | None = None,
 ) -> Starlette:
+    """`overrides` (section.field=value) apply to every config the app loads,
+    e.g. to switch local models off in tests."""
     load_dotenv()
     index_root = Path(index_root or PROJECT_ROOT / "indexes")
     upload_root = Path(upload_root or PROJECT_ROOT / "data" / "uploads")
@@ -182,7 +185,7 @@ def create_app(
     def start_index_job(video: Path, srt: Path | None, video_id: str) -> Job:
         def work(job: Job) -> None:
             job.emit("log", message=f"indexing {video.name} ...")
-            cfg = load_config()
+            cfg = load_config(None, overrides)
             out = index_root / video_id
             build_index(video, out, cfg, srt_path=srt, log=lambda m: job.emit("log", message=m))
             if not browser_playable(video):
@@ -242,7 +245,7 @@ def create_app(
         options = [o.strip() for o in body.options if o.strip()]
 
         def work(job: Job) -> None:
-            cfg = load_config(PROJECT_ROOT / provider["config"])
+            cfg = load_config(PROJECT_ROOT / provider["config"], overrides)
             llm = llm_factory(cfg.models, cfg.pricing)
             job.emit("start", provider=body.provider, model=cfg.models.planner,
                      budget={"tool_calls": cfg.agent.max_tool_calls, "frames": cfg.agent.max_frames})
@@ -327,9 +330,9 @@ def _preview_of(index_dir: Path) -> Path | None:
 
 
 def _warm_up(index_root: Path) -> None:
-    """Load the embedding model and the open-vocabulary detector before the first
-    question (SigLIP 2 so400m takes ~20-30 s to load), so the first answer is not slow."""
-    from ..tools import default_detector, default_embedder_factory
+    """Load the embedding model, the reranker and the open-vocabulary detector before
+    the first question (each takes 10-30 s to load), so the first answer is not slow."""
+    from ..tools import default_detector, default_embedder_factory, default_reranker_factory
 
     try:
         cfg = load_config()
@@ -339,6 +342,9 @@ def _warm_up(index_root: Path) -> None:
             factory = default_embedder_factory(index, cfg)
             if factory is not None:
                 factory().embed_text(["warm up"])
+            reranker = default_reranker_factory(index, cfg)
+            if reranker is not None:
+                reranker()
         detector = default_detector(cfg)
         if detector is not None:
             detector.warm()

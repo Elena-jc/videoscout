@@ -283,6 +283,26 @@ python -m videoscout index 你的视频.mp4 --out indexes/my_video [--srt 字幕
 
 ---
 
+## 13.5 v0.3 升级：对齐 2025–2026 长视频 agent 的前沿做法
+
+升级前的问题：YOLO 和 SigLIP 只是把同一家族换成最新版，没有回答「这个位置现在该用什么」。v0.3 的改动是按业界与论文的做法重新设计的：
+
+| 模块 | 之前 | 现在 | 为什么（面试这样讲） |
+|---|---|---|---|
+| 记忆结构 | 一层：固定 10 秒片段 | 四层：故事线 L0 → 事件 L1 → 片段 L2 → 帧 L3（[memory.py](../videoscout/index/memory.py)） | Deep Video Discovery、VideoSeek 等 LVBench 头部方法都是「多粒度 + 由粗到细」。VideoSeek 在 LVBench 上用约 27 帧就超过了用 8000 帧的方法：**省帧数本身就是核心指标** |
+| 事件切分 | 无 | 相邻片段向量的余弦相似度低于「均值 − z·标准差」处切开，并限制最短/最长时长 | 阈值是自适应的：讲座和动作片的相似度基线完全不同，固定阈值不可用 |
+| 文本记忆 | 只有字幕 | 本地 Qwen3-VL-2B 给每个片段写描述、给每个事件写摘要，再写全片故事线 | 免费、离线；agent 用 `browse_timeline` 浏览全片只花几百个 token，**不花帧预算** |
+| 稠密检索 | SigLIP 2 单帧 MaxSim | Qwen3-VL-Embedding：一个片段（几帧 + 字幕 + 描述）编码成一个向量 | 单帧编码器看不到动作和顺序，片段级多模态向量可以；SigLIP 2 保留为消融基线 |
+| 精排 | 无 | Qwen3-VL-Reranker 交叉编码器对融合后的前 20 个重排（[hybrid.py](../videoscout/retrieval/hybrid.py)） | 双塔（bi-encoder）快但粗，交叉编码器（cross-encoder）把 query 和片段放在一起读，准但慢，所以只用于 top-N：这就是工业界标准的「召回 + 精排」两阶段 |
+| 开放词汇 | YOLOE-26 逐帧检测 | SAM 3 概念分割 + 跟踪（[concepts.py](../videoscout/tools/concepts.py)），没有权重时自动退回 YOLOE | SAM 3 跨帧保持身份，所以「有几个不同的人」「出现了多久」是跟踪出来的，不是逐帧猜的 |
+| YOLO26 的定位 | 主力 | 便宜的常驻第一级（级联设计） | 面试官问「为什么还用 YOLO」：全片跑便宜模型，问题相关的窗口才跑重模型，这是工业里常见的成本级联 |
+
+**8GB 显存怎么同时跑 4 个模型**（[gpu.py](../videoscout/gpu.py)）：同一时刻只有一个大模型在 GPU 上，其余的停在内存里（换入换出约 3 秒）。实测发现每次搜索要换两次模型（约 10 秒），于是把短的文本查询放到 CPU 上编码（fp32，0.9 秒），GPU 留给 reranker：**搜索从约 10 秒降到 1.5 秒**。这是一个很好的「先测量、再优化」的例子。
+
+**评测怎么做才有说服力**：
+1. **检索单独评测（免费）**：LVBench 每道题标了答案所在的时间段。直接看 `search_segments` 的前 k 个结果有没有覆盖这个时间段，算 Recall@1/@5 和 MRR（[eval/retrieval.py](../videoscout/eval/retrieval.py)）。完全本地运行、不调 API，可以覆盖所有下载了的视频的所有题。对比 `bm25 / keyframe / clip / clip+bm25 / clip+bm25+rerank`，每一级改进都有数字支撑。
+2. **端到端问答**：agent 对比三个基线：均匀抽 32 帧、Gemini 原生「整段看视频」（static）、Gemini 原生 agentic 模式（Gemini 自己在时间轴上跳着看）。面试官一定会问「为什么不直接把视频丢给 Gemini？」，这张表就是回答：准确率、token、延迟、能否给出证据时间段。
+
 ## 14. 做实验的建议顺序
 
 1. 跑通演示视频（5 题），读 `runs/agent/traces/*.json`，看 agent 实际怎么决策；
@@ -296,9 +316,10 @@ python -m videoscout index 你的视频.mp4 --out indexes/my_video [--srt 字幕
 ## 15. 简历条目（数字必须来自你自己的 runs/）
 
 **Agentic Long-Video QA System (VideoScout)**, Oct 2026 – Present
-- Built a LangGraph agent that answers questions over hour-long videos by planning calls to MCP-served tools: hybrid SigLIP 2 + BM25 segment retrieval (RRF fusion, temporal MMR), read-only SQL over YOLO26/ByteTrack trajectory memory, text-prompted open-vocabulary detection (YOLOE-26), and a vision sub-agent for zoomed-in inspection.
+- Built a LangGraph agent that answers questions over hour-long videos with a multi-granular memory (storyline → events → clips → frames) and MCP-served tools: text-memory browsing, two-stage retrieval (Qwen3-VL clip embeddings + BM25 with RRF, Qwen3-VL cross-encoder reranking, temporal MMR), read-only SQL over YOLO26/ByteTrack trajectories, SAM 3 open-vocabulary concept tracking, and a vision sub-agent.
+- Ran four local models on an 8 GB laptop GPU with an LRU GPU pool and CPU query encoding, cutting search latency from ~10 s to 1.5 s.
 - Enforced tool and frame budgets in the graph and added an independent verifier that checks answers against logged observations, feeding back missing evidence or flagging low-confidence answers (selective answering).
-- Improved accuracy by X points over a 32-frame uniform-sampling baseline on N Video-MME long questions at Y% fewer frames and $Z/question; ablated verifier/retrieval/SQL tools and categorized failures via grounding hit rates.
+- On N LVBench questions (hour-long videos), raised retrieval Recall@5 from X% (SigLIP 2 frames) to Y% (clip embeddings + reranking), and compared the agent with uniform sampling and Gemini's native static/agentic video modes on accuracy, frames and tokens; ablated memory, reranker and verifier.
 
 ---
 
@@ -314,14 +335,17 @@ python -m videoscout index 你的视频.mp4 --out indexes/my_video [--srt 字幕
 | 为什么 verifier 要用新的上下文？ | 避免它被 planner 的推理带偏；让它只判断「证据是否支持答案」，把生成和验证分开 |
 | RRF 和加权求和相比？ | RRF 不需要分数校准，更鲁棒；代价是丢掉了分数大小（结合第 5 节的真实例子讲） |
 | MCP 带来了什么？ | 工具只写一次，任何 MCP 客户端都能复用；进程隔离；可以一键切换 in-process 和 MCP 做对比 |
+| 为什么加 reranker 而不是换更大的 embedding？ | 双塔是独立编码后算相似度，查询和片段之间没有交互；交叉编码器一起读两者，精度高但不能预先建索引，只能用于 top-N。两阶段兼顾了召回的速度和精排的精度 |
+| 多粒度记忆有什么用？ | agent 先读故事线和事件摘要（几百个 token、零帧）定位大致区域，再搜片段，最后才花帧确认；对比消融 `--set agent.disabled_tools=browse_timeline` 看帧数和准确率 |
+| 本地小模型写的描述会不会有幻觉？ | 会。所以它只当「地图」不当「证据」：prompt 和 verifier 都要求关键事实必须由 inspect_clip 的视觉观察确认 |
+| 为什么不直接用 Gemini 的原生视频理解？ | 把它作为基线一起评测：比较准确率、token、延迟；agent 的优势在于可控预算、可审计的证据链、模型无关（可以换成本地模型），以及能给出证据时间段 |
 | 如果要上线？ | 离线索引用批处理加 GPU；片段标题走 Batches API；checkpointer 支持中断恢复；缓存、并发和限流；按问题类型路由不同的预算 |
 
 ---
 
 ## 17. 可以继续做的前沿扩展（挑一个做深就够）
 
-1. **本地视觉模型**：实现一个 `QwenVLVision` 后端（接口见 [vision.py](../videoscout/vision.py) 的 `VisionBackend`），用你熟悉的 Qwen2.5-VL 或 Qwen3-VL 跑在 3070 上，对比成本和准确率。大约 50 行代码，也很适合练手。
+1. **本地视觉模型**：实现一个 `QwenVLVision` 后端（接口见 [vision.py](../videoscout/vision.py) 的 `VisionBackend`），复用已经下载的 Qwen3-VL-2B 跑 inspect_clip，对比成本和准确率。
 2. **Agentic RL**：把 planner 换成 3B–4B 的小模型，用 GRPO 训练，奖励 = 答对 − λ × 工具成本（可以用 TRL 或 verl）。这是 2025–2026 年的热点方向，需要 GPU。
-3. **镜头切分**：用直方图差分或 PySceneDetect 替代固定 10 秒切分，对比检索命中率。
-4. **ASR**：没有字幕的视频用 faster-whisper 生成字幕，补上 BM25 的文本来源。
-5. **跨视频长期记忆**：把多个视频的索引合并，支持「哪个监控视频里出现过穿红衣服的人」这类问题。
+3. **ASR**：没有字幕的视频用 faster-whisper 生成字幕，补上 BM25 的文本来源。
+4. **跨视频长期记忆**：把多个视频的索引合并，支持「哪个监控视频里出现过穿红衣服的人」这类问题。
