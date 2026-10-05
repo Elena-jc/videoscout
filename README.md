@@ -11,23 +11,24 @@ in the browser (static page, no API calls). Run it locally to ask your own quest
 
 ```mermaid
 flowchart LR
-    subgraph Offline index
-        V[video] --> S[10 s segments]
-        V --> T[YOLO26 + ByteTrack] --> DB[(SQLite: tracks, detections)]
-        V --> E[SigLIP 2 keyframe embeddings]
-        SRT[subtitles / captions] --> B[BM25 text index]
+    subgraph offline ["Offline index"]
+        V["video"] --> S["10 s segments"]
+        V --> T["YOLO26 + ByteTrack"] --> DB[("SQLite: tracks, detections")]
+        V --> E["SigLIP 2 keyframe embeddings"]
+        SRT["subtitles / captions"] --> B["BM25 text index"]
     end
-    subgraph Agent (LangGraph)
-        A[planner LLM] -->|tool calls| X[tools node<br/>budget enforced in code]
+    subgraph agent ["Agent (LangGraph)"]
+        A["planner LLM"] -->|"tool calls"| X["tools node<br/>budget enforced in code"]
         X --> A
-        A -->|submit_answer| VF[verifier<br/>fresh context]
-        VF -->|rejected + feedback| A
-        VF -->|accepted| OUT[answer + calibrated confidence]
+        A -->|"submit_answer"| VF["verifier<br/>fresh context"]
+        VF -->|"rejected + feedback"| A
+        VF -->|"accepted"| OUT["answer + calibrated confidence"]
     end
-    X -. search_segments .-> E & B
-    X -. query_tracks .-> DB
-    X -. find_objects .-> YE[YOLOE-26 open-vocabulary detector]
-    X -. inspect_clip .-> VLM[vision model]
+    X -.->|"search_segments"| E
+    X -.->|"search_segments"| B
+    X -.->|"query_tracks"| DB
+    X -.->|"find_objects"| YE["YOLOE-26 open-vocabulary detector"]
+    X -.->|"inspect_clip"| VLM["vision model"]
 ```
 
 ## What is in it
@@ -148,7 +149,7 @@ videoscout/
   llm.py        Claude wrapper (effort, caching, fallback, cost)
   web/          local web app (Starlette, SSE, background jobs) and static export
   spend.py      local daily request / cost caps
-tests/          59 unit tests (never call an API); `pytest -m integration` runs real YOLO26 / YOLOE / SigLIP 2
+tests/          60 unit tests (never call an API); `pytest -m integration` runs real YOLO26 / YOLOE / SigLIP 2
 docs/WALKTHROUGH.md   design notes and interview prep (Chinese)
 ```
 

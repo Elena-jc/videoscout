@@ -3,149 +3,440 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>VideoScout</title>
+<title>VideoScout · agentic QA over long videos</title>
+<meta name="description" content="A tool-using agent that searches long videos, looks at the moments that matter with a vision model, and verifies its answer against what it saw.">
+<meta property="og:title" content="VideoScout">
+<meta property="og:description" content="An agent that searches, looks and verifies before it answers questions about long videos.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%234f46e5'/%3E%3Ccircle cx='14' cy='14' r='7' fill='none' stroke='white' stroke-width='2.5'/%3E%3Cpath d='M12 10.5v7l5.5-3.5z' fill='white'/%3E%3Cpath d='M19.5 19.5 25 25' stroke='white' stroke-width='2.5' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
 <style>
   :root {
-    --bg: #f6f7f9; --panel: #ffffff; --text: #1b1f24; --muted: #667085; --border: #e3e6ea;
-    --accent: #4f46e5; --accent-soft: #eef0ff; --ok: #12805c; --ok-soft: #e7f6ef;
-    --warn: #b54708; --warn-soft: #fef4e6; --err: #c4320a; --err-soft: #fdecea; --code: #f2f4f7;
+    --bg: #f6f7f9; --surface: #ffffff; --surface-2: #f9fafb; --sunken: #f0f2f5;
+    --text: #101828; --text-2: #344054; --muted: #667085; --faint: #98a2b3;
+    --border: #eaecf0; --border-strong: #d0d5dd;
+    --primary: #4f46e5; --primary-hover: #4338ca; --on-primary: #ffffff;
+    --accent: #4f46e5; --accent-soft: #eef2ff; --accent-border: #c7d2fe;
+    --ok: #067647; --ok-soft: #ecfdf3; --ok-border: #abefc6;
+    --warn: #b54708; --warn-soft: #fffaeb; --warn-border: #fedf89;
+    --err: #b42318; --err-soft: #fef3f2; --err-border: #fecdca;
+    --c-retrieved: #818cf8; --c-inspected: #f59e0b; --c-evidence: #12b76a;
+    --shadow-sm: 0 1px 2px rgba(16, 24, 40, .05);
+    --shadow: 0 1px 3px rgba(16, 24, 40, .07), 0 1px 2px rgba(16, 24, 40, .04);
+    --sans: Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Consolas, monospace;
+    color-scheme: light;
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #0f1115; --panel: #171a21; --text: #e6e8eb; --muted: #98a2b3; --border: #2a2f3a;
-      --accent: #8b85ff; --accent-soft: #23234a; --ok: #4ade80; --ok-soft: #12301f;
-      --warn: #fbbf24; --warn-soft: #33270d; --err: #f87171; --err-soft: #3a1515; --code: #1f232c;
+      --bg: #0b0d12; --surface: #12151c; --surface-2: #171b24; --sunken: #0d1016;
+      --text: #f2f4f7; --text-2: #d0d5dd; --muted: #98a2b3; --faint: #667085;
+      --border: #232835; --border-strong: #303747;
+      --primary: #6366f1; --primary-hover: #7c7ff5; --on-primary: #ffffff;
+      --accent: #a5b4fc; --accent-soft: rgba(99, 102, 241, .14); --accent-border: rgba(129, 140, 248, .35);
+      --ok: #47cd89; --ok-soft: rgba(23, 178, 106, .12); --ok-border: rgba(71, 205, 137, .3);
+      --warn: #fdb022; --warn-soft: rgba(247, 144, 9, .12); --warn-border: rgba(253, 176, 34, .3);
+      --err: #f97066; --err-soft: rgba(240, 68, 56, .12); --err-border: rgba(249, 112, 102, .3);
+      --shadow-sm: none; --shadow: none;
+      color-scheme: dark;
     }
   }
-  * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
-  header { min-height: 56px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; padding: 8px 16px; background: var(--panel); border-bottom: 1px solid var(--border); }
-  #mode-banner { min-width: 0; overflow-wrap: anywhere; }
-  header h1 { font-size: 17px; margin: 0; letter-spacing: .2px; }
-  header .tag { color: var(--muted); font-size: 13px; }
-  header .spacer { flex: 1; }
-  select, input, textarea, button { font: inherit; color: inherit; }
-  select, input[type=text], textarea { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; width: 100%; }
-  textarea { resize: vertical; }
-  button { cursor: pointer; border: 1px solid var(--border); background: var(--panel); border-radius: 8px; padding: 7px 14px; }
-  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
-  button:disabled { opacity: .55; cursor: not-allowed; }
-  .layout { display: grid; grid-template-columns: 260px minmax(0, 1fr) 420px; gap: 16px; padding: 16px; height: calc(100vh - 56px); }
-  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 14px; overflow: auto; min-height: 0; }
-  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); margin: 0 0 10px; }
-  #video-list { list-style: none; margin: 0 0 14px; padding: 0; display: grid; gap: 8px; }
-  #video-list li { border: 1px solid var(--border); border-radius: 10px; padding: 9px 11px; cursor: pointer; }
-  #video-list li.active { border-color: var(--accent); background: var(--accent-soft); }
-  #video-list .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  #video-list .meta { color: var(--muted); font-size: 12px; }
-  details.add summary { cursor: pointer; font-weight: 600; color: var(--accent); }
-  details.add form { display: grid; gap: 8px; margin-top: 10px; }
-  details.add label { font-size: 12px; color: var(--muted); }
-  .or { text-align: center; color: var(--muted); font-size: 12px; margin: 10px 0 0; }
-  pre { background: var(--code); border-radius: 8px; padding: 8px 10px; white-space: pre-wrap; word-break: break-word; font: 12px/1.45 ui-monospace, Consolas, monospace; margin: 6px 0 0; }
+  *, *::before, *::after { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.55 var(--sans); -webkit-font-smoothing: antialiased; }
+  a { color: var(--accent); }
+  svg { flex: none; }
+  .mono { font-family: var(--mono); }
+  .muted { color: var(--muted); }
+
+  /* ------------------------------------------------------------ top bar */
+  .topbar { position: sticky; top: 0; z-index: 10; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px;
+            padding: 10px 24px; background: color-mix(in srgb, var(--surface) 88%, transparent);
+            backdrop-filter: saturate(180%) blur(12px); -webkit-backdrop-filter: saturate(180%) blur(12px); border-bottom: 1px solid var(--border); }
+  .brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .logo { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; color: #fff;
+          background: linear-gradient(135deg, #6366f1, #4338ca); box-shadow: 0 1px 2px rgba(67, 56, 202, .35); }
+  .logo svg { width: 20px; height: 20px; }
+  .brand-name { font-weight: 700; font-size: 16px; letter-spacing: -.01em; }
+  .brand-tag { font-size: 13px; color: var(--muted); padding-left: 10px; border-left: 1px solid var(--border); white-space: nowrap; }
+  .spacer { flex: 1; }
+  .pill { font-size: 12.5px; color: var(--text-2); background: var(--surface-2); border: 1px solid var(--border); border-radius: 999px;
+          padding: 4px 10px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .pill:empty { display: none; }
+  .model-picker { display: flex; align-items: center; gap: 8px; }
+  .model-picker label { font-size: 13px; color: var(--muted); }
+  .model-picker select { width: auto; padding: 6px 32px 6px 10px; }
+
+  /* -------------------------------------------------------------- controls */
+  select, input[type=text], textarea { width: 100%; font: inherit; color: var(--text); background: var(--surface);
+    border: 1px solid var(--border-strong); border-radius: 10px; padding: 9px 12px; transition: border-color .15s, box-shadow .15s; }
+  select { appearance: none; -webkit-appearance: none; cursor: pointer; background-repeat: no-repeat; background-position: right 10px center;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2398a2b3' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E"); }
+  textarea { resize: vertical; min-height: 44px; display: block; }
+  textarea::placeholder, input::placeholder { color: var(--faint); }
+  select:focus, input:focus, textarea:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 4px var(--accent-soft); }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; font: 600 14px/1.2 var(--sans); color: var(--text);
+         background: var(--surface); border: 1px solid var(--border-strong); border-radius: 10px; padding: 9px 16px; cursor: pointer;
+         text-decoration: none; white-space: nowrap; box-shadow: var(--shadow-sm); transition: background .15s, border-color .15s, color .15s; }
+  .btn:hover { background: var(--surface-2); }
+  .btn:active { transform: translateY(1px); }
+  .btn svg { width: 16px; height: 16px; }
+  .btn.primary { background: var(--primary); border-color: var(--primary); color: var(--on-primary); }
+  .btn.primary:hover { background: var(--primary-hover); border-color: var(--primary-hover); }
+  .btn.small { padding: 5px 10px; font-size: 13px; border-radius: 8px; }
+  .btn.small svg { width: 14px; height: 14px; }
+  .btn:disabled { opacity: .55; cursor: not-allowed; transform: none; }
+  :focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+  /* ----------------------------------------------------------------- intro */
+  .intro { max-width: 1600px; margin: 0 auto; padding: 32px 24px 8px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
+           gap: 32px; align-items: center; }
+  .kicker { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--accent);
+            background: var(--accent-soft); border: 1px solid var(--accent-border); border-radius: 999px; padding: 3px 10px; margin-bottom: 14px; }
+  .kicker i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .intro h1 { font-size: 30px; line-height: 1.2; letter-spacing: -.025em; margin: 0 0 12px; font-weight: 700; }
+  .intro p { color: var(--text-2); margin: 0 0 18px; max-width: 62ch; font-size: 15px; }
+  .intro p b { color: var(--text); font-weight: 600; }
+  .intro-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+  .notice { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-2); background: var(--surface);
+            border: 1px solid var(--border); border-radius: 12px; padding: 6px 12px; }
+  .notice svg { width: 15px; height: 15px; color: var(--ok); }
+  .pipeline { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+  .pipeline li { position: relative; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 14px; box-shadow: var(--shadow); }
+  .pipeline .num { position: absolute; top: 14px; right: 14px; font: 500 11px var(--mono); color: var(--faint); }
+  .pi-icon { width: 32px; height: 32px; border-radius: 9px; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); margin-bottom: 10px; }
+  .pi-icon svg { width: 17px; height: 17px; }
+  .pipeline b { display: block; font-size: 14px; }
+  .pipeline small { display: block; color: var(--muted); font-size: 12.5px; line-height: 1.45; margin-top: 3px; }
+
+  /* ------------------------------------------------------------- workspace */
+  .workspace { max-width: 1600px; margin: 0 auto; padding: 20px 24px 12px; display: grid; gap: 20px; align-items: start;
+               grid-template-columns: 260px minmax(0, 1fr) minmax(360px, 440px); }
+  body.no-library .workspace { grid-template-columns: minmax(0, 1fr) minmax(380px, 470px); }
+  body.no-library #library { display: none; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; box-shadow: var(--shadow); min-width: 0; }
+  .stage { display: grid; gap: 20px; min-width: 0; }
+  .sticky { position: sticky; top: 72px; max-height: calc(100vh - 92px); overflow: auto; }
+  .card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  h2 { display: flex; align-items: center; gap: 8px; font-size: 13.5px; font-weight: 600; margin: 0; color: var(--text); }
+  h2 svg { width: 16px; height: 16px; color: var(--muted); }
+  .count { font-size: 12px; color: var(--faint); font-variant-numeric: tabular-nums; }
+  .eyebrow { font-size: 11.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+
+  /* ---------------------------------------------------------------- library */
+  .library { padding: 16px; }
+  .lib-list { list-style: none; margin: 12px 0 14px; padding: 0; display: grid; gap: 4px; }
+  .lib-item { display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 10px; border: 1px solid transparent; cursor: pointer; transition: background .15s; }
+  .lib-item:hover { background: var(--surface-2); }
+  .lib-item.active { background: var(--accent-soft); border-color: var(--accent-border); }
+  .lib-thumb { flex: none; width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center; background: var(--sunken); color: var(--muted); }
+  .lib-thumb svg { width: 16px; height: 16px; }
+  .lib-item.active .lib-thumb { background: var(--primary); color: var(--on-primary); }
+  .lib-text { display: grid; min-width: 0; }
+  .lib-name { font-weight: 600; font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lib-meta { font-size: 12px; color: var(--muted); }
+  .lib-empty { color: var(--muted); font-size: 13px; padding: 8px; }
+  details.add { border-top: 1px solid var(--border); padding-top: 14px; }
+  details.add summary { cursor: pointer; font-weight: 600; font-size: 13.5px; color: var(--accent); list-style: none; display: flex; align-items: center; gap: 6px; }
+  details.add summary::-webkit-details-marker { display: none; }
+  details.add summary svg { width: 16px; height: 16px; }
+  details.add form { display: grid; gap: 10px; margin-top: 12px; }
+  details.add label { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
+  input[type=file] { font-size: 12px; color: var(--text-2); max-width: 100%; }
+  input[type=file]::file-selector-button { font: 600 12px var(--sans); border: 1px solid var(--border-strong); background: var(--surface-2); color: var(--text);
+    border-radius: 8px; padding: 5px 10px; margin-right: 8px; cursor: pointer; }
+  .divider { display: flex; align-items: center; gap: 10px; color: var(--faint); font-size: 12px; margin: 14px 0 10px; }
+  .divider::before, .divider::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+  pre { margin: 6px 0 0; background: var(--sunken); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; white-space: pre-wrap;
+        word-break: break-word; font: 12px/1.6 var(--mono); color: var(--text-2); max-height: 320px; overflow: auto; }
   #index-log:empty { display: none; }
-  .center { display: flex; flex-direction: column; gap: 12px; }
-  video { width: 100%; max-height: 46vh; background: #000; border-radius: 10px; }
-  #video-meta { color: var(--muted); font-size: 12px; }
-  #ask-form { display: grid; gap: 8px; }
-  .row { display: flex; align-items: center; gap: 10px; }
-  #ask-status { color: var(--muted); font-size: 13px; }
+
+  /* ------------------------------------------------------- player + timeline */
+  .player-card { overflow: hidden; }
+  .player-wrap { background: #000; }
+  video { display: block; width: 100%; aspect-ratio: 16 / 9; max-height: 52vh; background: #000; }
+  .video-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 14px 16px 0; }
+  .video-name { font-weight: 600; font-size: 14px; margin-right: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
   .chips { display: flex; flex-wrap: wrap; gap: 6px; }
-  .chip { font-size: 12px; border-radius: 999px; padding: 4px 10px; }
-  .hint { font-size: 12px; color: var(--warn); }
-  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--err); margin-right: 6px; }
-  .dot.ok { background: var(--ok); }
-  #trace { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
-  .step { border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; }
-  .step .label { font-size: 12px; font-weight: 600; color: var(--muted); display: flex; gap: 6px; align-items: center; }
-  .step p { margin: 4px 0 0; }
-  .step.agent { border-left: 3px solid var(--accent); }
-  .step.tool { border-left: 3px solid var(--muted); }
-  .step.tool.error { border-left-color: var(--err); }
-  .step.verify { border-left: 3px solid var(--ok); }
-  .step.verify.rejected { border-left-color: var(--warn); }
-  .call { font: 12px ui-monospace, Consolas, monospace; background: var(--accent-soft); border-radius: 6px; padding: 3px 7px; margin-top: 5px; overflow-wrap: anywhere; }
-  details.result summary { cursor: pointer; color: var(--muted); font-size: 12px; margin-top: 4px; }
-  .badge { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; }
-  .badge.ok { background: var(--ok-soft); color: var(--ok); }
-  .badge.warn { background: var(--warn-soft); color: var(--warn); }
-  .badge.err { background: var(--err-soft); color: var(--err); }
-  .answer { border: 1px solid var(--border); border-radius: 12px; padding: 14px; margin-bottom: 14px; }
-  .answer.empty { color: var(--muted); }
-  .answer .main { display: flex; align-items: baseline; gap: 10px; font-size: 20px; font-weight: 700; }
-  .answer .letter { color: var(--accent); }
-  .answer .badges { display: flex; gap: 6px; margin: 8px 0; flex-wrap: wrap; }
-  .bar { height: 8px; background: var(--code); border-radius: 999px; overflow: hidden; flex: 1; }
-  .bar i { display: block; height: 100%; background: var(--accent); }
-  .conf { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
-  .rationale { margin: 10px 0; }
-  .usage { color: var(--muted); font-size: 12px; margin-top: 10px; }
-  .answer.error { border-color: var(--err); background: var(--err-soft); }
-  button.ts { font-size: 12px; padding: 1px 7px; border-radius: 6px; color: var(--accent); border-color: var(--accent); background: transparent; }
-  .evidence { display: grid; gap: 6px; }
-  .evidence div { display: flex; gap: 8px; align-items: baseline; }
-  .spinner { width: 12px; height: 12px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; display: inline-block; animation: spin .8s linear infinite; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-2); background: var(--surface-2);
+          border: 1px solid var(--border); border-radius: 999px; padding: 3px 10px; white-space: nowrap; }
+  .chip svg { width: 13px; height: 13px; color: var(--muted); }
+  .timeline { padding: 14px 16px 16px; }
+  .tl-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; margin-bottom: 10px; }
+  .tl-title { font-size: 13px; font-weight: 600; }
+  .tl-title small { font-weight: 400; color: var(--muted); margin-left: 6px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--muted); }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .legend i { width: 10px; height: 10px; border-radius: 3px; }
+  .tl-grid { display: grid; grid-template-columns: 72px minmax(0, 1fr); column-gap: 10px; }
+  .tl-labels { display: grid; gap: 6px; font-size: 11.5px; color: var(--muted); }
+  .tl-labels span { height: 16px; line-height: 16px; }
+  .tl-tracks { position: relative; display: grid; gap: 6px; cursor: pointer; }
+  .lane { position: relative; height: 16px; background: var(--sunken); border: 1px solid var(--border); border-radius: 5px; overflow: hidden; }
+  .mark { position: absolute; top: 0; bottom: 0; padding: 0; border: 0; border-radius: 3px; cursor: pointer; animation: grow .35s ease-out; transform-origin: left; }
+  .mark.retrieved { background: var(--c-retrieved); opacity: .32; }
+  .mark.inspected { background: var(--c-inspected); opacity: .9; }
+  .mark.evidence { background: var(--c-evidence); }
+  .mark:hover { opacity: 1; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .6); }
+  .playhead { position: absolute; top: -4px; bottom: -4px; left: 0; width: 2px; margin-left: -1px; border-radius: 2px; background: var(--text);
+              pointer-events: none; transition: left .25s linear; }
+  .playhead::before { content: ""; position: absolute; top: -3px; left: -3px; width: 8px; height: 8px; border-radius: 50%; background: var(--text); }
+  .tl-axis { grid-column: 2; display: flex; justify-content: space-between; font: 11px var(--mono); color: var(--faint); margin-top: 6px; }
+
+  /* -------------------------------------------------------------- ask form */
+  .ask { padding: 16px; display: grid; gap: 12px; }
+  .field { display: grid; gap: 6px; }
+  .field label { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; font-weight: 600; color: var(--text-2); }
+  .field label small { font-weight: 400; color: var(--faint); font-size: 12px; }
+  #options { font: 13px/1.55 var(--mono); }
+  .ask-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+  .kbd { font: 11px var(--mono); color: var(--faint); }
+  #ask-status { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
+  .hint { font-size: 13px; color: var(--warn); background: var(--warn-soft); border: 1px solid var(--warn-border); border-radius: 10px; padding: 8px 12px; }
+  .hint:empty { display: none; }
+  .suggest { padding: 16px; }
+  .qlist { display: grid; gap: 8px; margin-top: 12px; }
+  .qcard { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; font: inherit; color: inherit; background: var(--surface);
+           border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; cursor: pointer; transition: border-color .15s, background .15s, box-shadow .15s; }
+  .qcard:hover { border-color: var(--accent-border); background: var(--accent-soft); }
+  .qcard.active { border-color: var(--primary); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .q-icon { flex: none; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); }
+  .q-icon svg { width: 14px; height: 14px; }
+  .qcard.active .q-icon { background: var(--primary); color: var(--on-primary); }
+  .q-text { flex: 1; min-width: 0; display: grid; gap: 3px; }
+  .q-title { font-weight: 500; }
+  .q-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+  .q-meta .sep { color: var(--faint); }
+  .muted-note { color: var(--muted); font-size: 13px; margin: 12px 0 0; }
+
+  /* --------------------------------------------------------------- results */
+  .answer { padding: 18px; border-bottom: 1px solid var(--border); }
+  .empty-state { text-align: center; color: var(--muted); padding: 28px 12px; font-size: 13.5px; }
+  .es-icon { width: 44px; height: 44px; margin: 0 auto 12px; border-radius: 12px; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); }
+  .es-icon svg { width: 20px; height: 20px; }
+  .empty-state b { display: block; color: var(--text); font-size: 14.5px; margin-bottom: 4px; }
+  .working { display: flex; align-items: center; gap: 14px; padding: 6px 0; }
+  .working b { display: block; }
+  .working span { font-size: 13px; color: var(--muted); }
+  .answer-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
+  .badges { display: flex; flex-wrap: wrap; gap: 6px; }
+  .badge { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 600; line-height: 18px; padding: 1px 8px; border-radius: 999px;
+           border: 1px solid transparent; white-space: nowrap; }
+  .badge svg { width: 12px; height: 12px; }
+  .badge.ok { background: var(--ok-soft); color: var(--ok); border-color: var(--ok-border); }
+  .badge.warn { background: var(--warn-soft); color: var(--warn); border-color: var(--warn-border); }
+  .badge.err { background: var(--err-soft); color: var(--err); border-color: var(--err-border); }
+  .badge.neutral { background: var(--surface-2); color: var(--text-2); border-color: var(--border); }
+  .answer-main { display: flex; align-items: center; gap: 14px; }
+  .letter { flex: none; width: 48px; height: 48px; border-radius: 12px; display: grid; place-items: center; font-size: 24px; font-weight: 700;
+            background: var(--primary); color: var(--on-primary); box-shadow: 0 2px 6px rgba(79, 70, 229, .3); }
+  .answer-text { font-size: 19px; font-weight: 600; line-height: 1.35; letter-spacing: -.01em; overflow-wrap: anywhere; }
+  .meters { display: grid; gap: 8px; margin-top: 16px; }
+  .meter { display: grid; grid-template-columns: 92px minmax(0, 1fr) 38px; align-items: center; gap: 10px; font-size: 12.5px; color: var(--text-2); }
+  .meter b { font: 500 12.5px var(--mono); text-align: right; color: var(--text); }
+  .bar { height: 6px; background: var(--sunken); border-radius: 999px; overflow: hidden; }
+  .bar i { display: block; width: 0; height: 100%; background: var(--primary); border-radius: 999px; transition: width .7s cubic-bezier(.2, .8, .2, 1); }
+  .bar.soft i { background: var(--faint); }
+  .rationale { color: var(--text-2); margin: 14px 0 0; }
+  .ev-list { display: grid; gap: 8px; margin-top: 16px; }
+  .ev-row { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 10px; padding: 9px 11px; border-radius: 10px;
+            background: var(--surface-2); border: 1px solid var(--border); border-left: 3px solid var(--c-evidence); font-size: 13.5px; }
+  .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(74px, 1fr)); gap: 8px; margin-top: 16px; }
+  .metric { background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; min-width: 0; }
+  .metric span { display: block; font-size: 11.5px; color: var(--muted); }
+  .metric b { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .metric small { font-size: 12px; font-weight: 500; color: var(--faint); }
+  .alert { display: flex; gap: 12px; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--err-border); background: var(--err-soft); }
+  .alert.info { border-color: var(--accent-border); background: var(--accent-soft); }
+  .alert > svg { width: 18px; height: 18px; color: var(--err); margin-top: 2px; }
+  .alert.info > svg { color: var(--accent); }
+  .alert p { margin: 4px 0 0; color: var(--text-2); overflow-wrap: anywhere; }
+  button.ts { font: 500 12px/1.5 var(--mono); color: var(--accent); background: var(--accent-soft); border: 1px solid var(--accent-border); border-radius: 6px;
+              padding: 0 6px; cursor: pointer; white-space: nowrap; transition: background .15s, color .15s; }
+  button.ts:hover { background: var(--primary); border-color: var(--primary); color: var(--on-primary); }
+
+  /* ----------------------------------------------------------------- trace */
+  .trace-wrap { padding: 16px 18px 6px; }
+  .trace { list-style: none; margin: 14px 0 0; padding: 0; }
+  .step { position: relative; display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 12px; padding-bottom: 16px; animation: fade-in .3s ease-out; }
+  .step::before { content: ""; position: absolute; left: 14px; top: 32px; bottom: 4px; width: 1px; background: var(--border); }
+  .step:last-child::before { display: none; }
+  .step-icon { width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; background: var(--surface-2); border: 1px solid var(--border); color: var(--muted); }
+  .step-icon svg { width: 15px; height: 15px; }
+  .step.agent .step-icon { background: var(--accent-soft); border-color: var(--accent-border); color: var(--accent); }
+  .step.verify .step-icon { background: var(--ok-soft); border-color: var(--ok-border); color: var(--ok); }
+  .step.rejected .step-icon, .step.notice .step-icon { background: var(--warn-soft); border-color: var(--warn-border); color: var(--warn); }
+  .step.error .step-icon { background: var(--err-soft); border-color: var(--err-border); color: var(--err); }
+  .step-body { min-width: 0; padding-top: 4px; }
+  .step-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+  .step-title { font-weight: 600; font-size: 13.5px; }
+  .step-title.mono { font-weight: 500; font-size: 13px; }
+  .step-meta { margin-left: auto; font: 12px var(--mono); color: var(--faint); }
+  .step p { margin: 4px 0 0; color: var(--text-2); overflow-wrap: anywhere; }
+  .call { margin-top: 6px; font: 12.5px/1.55 var(--mono); color: var(--text-2); background: var(--surface-2); border: 1px solid var(--border);
+          border-radius: 8px; padding: 6px 9px; overflow-wrap: anywhere; }
+  .call .fn { color: var(--accent); font-weight: 500; }
+  .call .k { color: var(--faint); }
+  details.result { margin-top: 6px; }
+  details.result summary { display: flex; align-items: baseline; gap: 6px; cursor: pointer; list-style: none; font-size: 12.5px; color: var(--muted); }
+  details.result summary::-webkit-details-marker { display: none; }
+  details.result summary::before { content: ""; flex: none; width: 0; height: 0; border-style: solid; border-width: 4px 0 4px 6px;
+    border-color: transparent transparent transparent currentColor; transform: translateY(-1px); transition: transform .15s; }
+  details.result[open] summary::before { transform: rotate(90deg); }
+  details.result summary span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .spinner { flex: none; width: 14px; height: 14px; border: 2px solid var(--border-strong); border-top-color: var(--primary); border-radius: 50%; animation: spin .8s linear infinite; }
+  .spinner.lg { width: 22px; height: 22px; border-width: 2.5px; }
   @keyframes spin { to { transform: rotate(360deg); } }
-  @media (max-width: 1100px) { .layout { grid-template-columns: 1fr; height: auto; } .panel { overflow: visible; } }
-  @media (max-width: 700px) { #tagline { display: none; } .layout { padding: 12px; gap: 12px; } }
+  @keyframes fade-in { from { opacity: 0; transform: translateY(4px); } }
+  @keyframes grow { from { transform: scaleX(0); } }
+
+  .footer { max-width: 1600px; margin: 0 auto; padding: 4px 24px 28px; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 16px;
+            color: var(--faint); font-size: 12.5px; }
+  .footer a { color: var(--muted); }
+
+  @media (max-width: 1180px) {
+    .workspace, body.no-library .workspace { grid-template-columns: minmax(0, 1fr); }
+    .sticky { position: static; max-height: none; overflow: visible; }
+    .intro { grid-template-columns: minmax(0, 1fr); gap: 20px; }
+  }
+  @media (max-width: 700px) {
+    .topbar { padding: 10px 16px; }
+    .brand-tag { display: none; }
+    .intro { padding: 22px 16px 0; }
+    .intro h1 { font-size: 23px; }
+    .pipeline { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .workspace { padding: 16px; gap: 16px; }
+    .stage { gap: 16px; }
+    .tl-grid { grid-template-columns: 62px minmax(0, 1fr); }
+    .footer { padding: 4px 16px 24px; }
+  }
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 </style>
 </head>
 <body>
-<header>
-  <h1>VideoScout</h1>
-  <span class="tag" id="tagline">agentic question answering over long videos</span>
+<header class="topbar">
+  <div class="brand">
+    <span class="logo" data-icon="logo"></span>
+    <span class="brand-name">VideoScout</span>
+    <span class="brand-tag">Agentic QA over long videos</span>
+  </div>
   <span class="spacer"></span>
-  <span class="tag" id="usage"></span>
-  <label for="provider" id="provider-label" style="color:var(--muted);font-size:13px">Model</label>
-  <select id="provider" style="width:auto"></select>
-  <span class="tag" id="mode-banner" hidden></span>
+  <span class="pill" id="usage"></span>
+  <div class="model-picker" id="model-picker">
+    <label for="provider">Model</label>
+    <select id="provider"></select>
+  </div>
+  <a class="btn small repo-link" target="_blank" rel="noopener" hidden><span data-icon="github"></span>GitHub</a>
 </header>
 
-<main class="layout">
-  <aside class="panel">
-    <h2>Videos</h2>
-    <ul id="video-list"></ul>
+<section class="intro" id="intro" hidden>
+  <div>
+    <span class="kicker"><i></i>Live demo · recorded runs</span>
+    <h1>An agent that searches, looks and verifies before it answers</h1>
+    <p>Instead of stuffing uniformly sampled frames into one model call, VideoScout <b>searches</b> a long video for the moments that matter,
+       <b>looks</b> at them with a vision model, and has an independent <b>verifier</b> check the answer against what it actually saw,
+       all under a fixed tool-call and frame budget.</p>
+    <div class="intro-actions">
+      <span class="notice"><span data-icon="check"></span><span id="intro-runs"></span></span>
+      <a class="btn small repo-link" target="_blank" rel="noopener" hidden><span data-icon="github"></span>View source</a>
+    </div>
+  </div>
+  <ol class="pipeline">
+    <li><span class="num">01</span><span class="pi-icon" data-icon="search"></span><b>Search</b><small>SigLIP 2 frame embeddings + BM25 over subtitles, fused with RRF</small></li>
+    <li><span class="num">02</span><span class="pi-icon" data-icon="database"></span><b>Recall</b><small>YOLO26 + ByteTrack tracks, queried with guarded read-only SQL</small></li>
+    <li><span class="num">03</span><span class="pi-icon" data-icon="eye"></span><b>Look</b><small>YOLOE-26 open-vocabulary detection and a vision sub-agent</small></li>
+    <li><span class="num">04</span><span class="pi-icon" data-icon="shield"></span><b>Verify</b><small>Fresh-context judge that accepts or sends the agent back</small></li>
+  </ol>
+</section>
+
+<main class="workspace">
+  <aside class="card library sticky" id="library">
+    <h2><span data-icon="film"></span>Videos</h2>
+    <ul class="lib-list" id="video-list"></ul>
     <details class="add" id="add-video">
-      <summary>+ Add a video</summary>
+      <summary><span data-icon="upload"></span>Add a video</summary>
       <form id="upload-form">
         <label>Video file <input type="file" name="video" accept="video/*" required></label>
         <label>Subtitles (.srt, optional) <input type="file" name="subtitles" accept=".srt"></label>
-        <button class="primary" type="submit">Upload and index</button>
+        <button class="btn primary small" type="submit">Upload and index</button>
       </form>
-      <p class="or">or index a file already on this computer</p>
+      <div class="divider">or index a file on this computer</div>
       <form id="path-form">
         <input type="text" name="path" placeholder="F:\videos\talk.mp4" required>
-        <input type="text" name="srt_path" placeholder="subtitle path (optional)">
-        <button type="submit">Index this file</button>
+        <input type="text" name="srt_path" placeholder="Subtitle path (optional)">
+        <button class="btn small" type="submit">Index this file</button>
       </form>
       <pre id="index-log"></pre>
     </details>
   </aside>
 
-  <section class="panel center">
-    <video id="player" controls preload="metadata"></video>
-    <div id="video-meta"></div>
-    <form id="ask-form">
-      <textarea id="question" rows="2" placeholder="Ask anything about this video" required></textarea>
-      <textarea id="options" rows="3" placeholder="Multiple-choice options, one per line (optional)&#10;A. ...&#10;B. ..."></textarea>
-      <div class="row">
-        <button class="primary" id="ask-btn" type="submit">Ask</button>
-        <span id="ask-status"></span>
+  <section class="stage">
+    <div class="card player-card">
+      <div class="player-wrap"><video id="player" controls preload="metadata" playsinline></video></div>
+      <div class="video-bar">
+        <span class="video-name" id="video-name"></span>
+        <div class="chips" id="video-meta"></div>
+      </div>
+      <div class="timeline">
+        <div class="tl-head">
+          <span class="tl-title">Where the agent looked<small id="tl-hint">marks appear as the agent works</small></span>
+          <div class="legend">
+            <span><i style="background:var(--c-retrieved);opacity:.6"></i>Retrieved</span>
+            <span><i style="background:var(--c-inspected)"></i>Inspected</span>
+            <span><i style="background:var(--c-evidence)"></i>Evidence</span>
+          </div>
+        </div>
+        <div class="tl-grid">
+          <div class="tl-labels"><span>Retrieved</span><span>Inspected</span><span>Evidence</span></div>
+          <div class="tl-tracks" id="tl-tracks" title="Click to seek">
+            <div class="lane" id="lane-retrieved"></div>
+            <div class="lane" id="lane-inspected"></div>
+            <div class="lane" id="lane-evidence"></div>
+            <div class="playhead" id="playhead"></div>
+          </div>
+          <div class="tl-axis" id="tl-axis"></div>
+        </div>
+      </div>
+    </div>
+
+    <form class="card ask" id="ask-form">
+      <div class="field">
+        <label for="question">Question</label>
+        <textarea id="question" rows="2" placeholder="Ask anything about this video" required></textarea>
+      </div>
+      <div class="field">
+        <label for="options">Options <small>optional · one per line</small></label>
+        <textarea id="options" rows="3" placeholder="A. ...&#10;B. ..."></textarea>
+      </div>
+      <div class="ask-row">
+        <button class="btn primary" id="ask-btn" type="submit"><span data-icon="play"></span><span id="ask-label">Ask the agent</span></button>
+        <span id="ask-status"><span class="kbd">Ctrl + Enter</span></span>
       </div>
       <div class="hint" id="provider-hint"></div>
     </form>
-    <div>
-      <h2>Try a question</h2>
-      <div class="chips" id="suggestions"><span style="color:var(--muted);font-size:12px">No suggested questions for this video.</span></div>
+
+    <div class="card suggest">
+      <div class="card-head"><h2><span data-icon="spark"></span><span id="suggest-title">Suggested questions</span></h2><span class="count" id="suggest-count"></span></div>
+      <div class="qlist" id="suggestions"></div>
     </div>
   </section>
 
-  <section class="panel">
-    <div id="answer" class="answer empty">Ask a question to see the answer, the evidence behind it and every step the agent took.</div>
-    <h2>Agent trace</h2>
-    <ol id="trace"></ol>
+  <section class="card results sticky" id="results">
+    <div class="answer" id="answer"></div>
+    <div class="trace-wrap">
+      <div class="card-head"><h2><span data-icon="list"></span>Agent trace</h2><span class="count" id="trace-count"></span></div>
+      <ol class="trace" id="trace"></ol>
+    </div>
   </section>
 </main>
+
+<footer class="footer">
+  <span>VideoScout · LangGraph · MCP · SigLIP 2 · YOLO26 · YOLOE-26</span>
+  <a class="repo-link" target="_blank" rel="noopener" hidden>Source on GitHub</a>
+</footer>
 
 <script>
 const $ = (s) => document.querySelector(s);
@@ -154,15 +445,50 @@ const fmt = (t) => {
   t = Math.max(0, Math.round(t)); const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), s = t % 60;
   return (h ? h + ":" + String(m).padStart(2, "0") : String(m).padStart(2, "0")) + ":" + String(s).padStart(2, "0");
 };
+const short = (s, n) => (s.length > n ? s.slice(0, n - 1) + "…" : s);
+const compact = (n) => (n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? (n / 1e3).toFixed(1) + "k" : String(n));
+const narrow = () => matchMedia("(max-width: 1180px)").matches;
 // Escape first, then turn "t=80.0-90.0s" / "t=83.3s" into buttons that seek the player.
 const linkTimes = (text) => esc(text)
-  .replace(/t=(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)s/g, (_, a, b) => `<button class="ts" data-t="${a}">${fmt(+a)}–${fmt(+b)}</button>`)
-  .replace(/t=(\d+(?:\.\d+)?)s\b/g, (_, a) => `<button class="ts" data-t="${a}">${fmt(+a)}</button>`);
+  .replace(/t=(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)s/g, (_, a, b) => `<button type="button" class="ts" data-seek="${a}">${fmt(+a)}–${fmt(+b)}</button>`)
+  .replace(/t=(\d+(?:\.\d+)?)s\b/g, (_, a) => `<button type="button" class="ts" data-seek="${a}">${fmt(+a)}</button>`);
+
+const PATHS = {
+  logo: '<circle cx="10.5" cy="10.5" r="6"/><path d="M9 8v5l4-2.5z" fill="currentColor" stroke="none"/><path d="m15 15 5 5"/>',
+  search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+  database: '<ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>',
+  eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
+  scan: '<path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><rect x="8" y="8" width="8" height="8" rx="1"/>',
+  shield: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/>',
+  spark: '<path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/><circle cx="12" cy="12" r="2.5"/>',
+  wrench: '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.8-3.8a6 6 0 0 1-7.9 7.9l-6.9 6.9a2.1 2.1 0 0 1-3-3l6.9-6.9a6 6 0 0 1 7.9-7.9z"/>',
+  alert: '<path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/>',
+  info: '<circle cx="12" cy="12" r="9"/><path d="M12 16v-4M12 8h.01"/>',
+  play: '<path d="M7 4.5v15l12-7.5z" fill="currentColor"/>',
+  check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>',
+  x: '<path d="M18 6 6 18M6 6l12 12"/>',
+  film: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 3v18M17 3v18M3 8h4M3 16h4M17 8h4M17 16h4"/>',
+  upload: '<path d="M12 15V3M7 8l5-5 5 5M5 21h14"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  captions: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 15h4M14 15h3M7 11h2M12 11h5"/>',
+  box: '<path d="M3 7.5 12 3l9 4.5-9 4.5z"/><path d="M3 7.5v9L12 21l9-4.5v-9M12 12v9"/>',
+  layers: '<path d="m12 2 10 5-10 5L2 7z"/><path d="m2 17 10 5 10-5M2 12l10 5 10-5"/>',
+  list: '<path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1"/><circle cx="4.5" cy="12" r="1"/><circle cx="4.5" cy="18" r="1"/>',
+  skip: '<path d="M5 5v14l10-7z" fill="currentColor"/><path d="M19 5v14"/>',
+};
+const icon = (name) => name === "github"
+  ? '<svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>'
+  : `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${PATHS[name] || ""}</svg>`;
+const badge = (tone, ic, text) => `<span class="badge ${tone}">${ic ? icon(ic) : ""}${esc(text)}</span>`;
+const TOOL_ICONS = { search_segments: "search", query_tracks: "database", inspect_clip: "eye", find_objects: "scan" };
+const ARG_ORDER = ["query", "visual_query", "sql", "names", "t_start", "t_end", "num_frames", "track_id", "box", "question", "answer", "confidence"];
+document.querySelectorAll("[data-icon]").forEach((el) => { el.innerHTML = icon(el.dataset.icon); });
 
 // Static export (GitHub Pages): no server, recorded runs are replayed from demo.json.
 const STATIC = window.VIDEOSCOUT_STATIC || null;
 let demo = null;
-const state = { videos: [], video: null, providers: [], options: [], running: false, started: 0 };
+const state = { videos: [], video: null, providers: [], questions: [], options: [], running: false, started: 0,
+                runId: 0, budget: null, steps: 0, toolCalls: 0, replay: null, skip: null };
 const store = { get: (k) => { try { return localStorage.getItem(k); } catch { return null; } },
                 set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
 
@@ -173,21 +499,72 @@ async function api(path, opts) {
   return body;
 }
 
-function seek(t) { const p = $("#player"); p.currentTime = t; p.play().catch(() => {}); }
-document.addEventListener("click", (e) => { const b = e.target.closest("button.ts"); if (b) { e.preventDefault(); seek(+b.dataset.t); } });
+function seek(t) {
+  const p = $("#player"); p.currentTime = t; p.play().catch(() => {});
+  if (narrow()) p.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+document.addEventListener("click", (e) => {
+  const b = e.target.closest("[data-seek]"); if (b) { e.preventDefault(); seek(+b.dataset.seek); }
+  if (e.target.closest("#skip-btn") && state.skip) state.skip();
+});
+
+// --------------------------------------------------------------- timeline
+const timeline = {
+  reset() {
+    for (const k of ["retrieved", "inspected", "evidence"]) $("#lane-" + k).innerHTML = "";
+    $("#tl-hint").hidden = false;
+  },
+  add(kind, t0, t1, label) {
+    const d = state.video && state.video.duration;
+    if (!d || !(t1 >= t0)) return;
+    const m = document.createElement("button");
+    m.type = "button"; m.className = "mark " + kind; m.dataset.seek = t0;
+    m.style.left = Math.min(100, (t0 / d) * 100) + "%";
+    m.style.width = Math.max(0.8, ((Math.min(t1, d) - t0) / d) * 100) + "%";
+    m.title = `${label} · ${fmt(t0)}–${fmt(t1)}`; m.setAttribute("aria-label", m.title);
+    $("#lane-" + kind).appendChild(m);
+    $("#tl-hint").hidden = true;
+  },
+  axis(d) {
+    $("#tl-axis").innerHTML = d ? [0, .25, .5, .75, 1].map((f) => `<span>${fmt(f * d)}</span>`).join("") : "";
+  },
+};
+const RANGE = /t=(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)s/;
+function markFromTool(step) {
+  if (step.is_error || !step.result) return;
+  if (step.name === "search_segments") {
+    for (const m of step.result.matchAll(new RegExp(RANGE, "g"))) timeline.add("retrieved", +m[1], +m[2], "search_segments");
+  } else if (step.name === "inspect_clip" || step.name === "find_objects") {
+    const m = step.result.split("\n")[0].match(RANGE);  // "Observation 01:20-01:30 (t=80.0-90.0s, 6 frames)"
+    if (m) timeline.add("inspected", +m[1], +m[2], step.name);
+  }
+}
+$("#tl-tracks").addEventListener("click", (e) => {
+  if (e.target.closest("[data-seek]") || !state.video) return;
+  const r = e.currentTarget.getBoundingClientRect();
+  seek(Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * state.video.duration);
+});
+const movePlayhead = () => {
+  const p = $("#player"), d = (state.video && state.video.duration) || p.duration;
+  if (d) $("#playhead").style.left = Math.min(100, (p.currentTime / d) * 100) + "%";
+};
+for (const ev of ["timeupdate", "seeking", "loadedmetadata"]) $("#player").addEventListener(ev, movePlayhead);
 
 // ---------------------------------------------------------------- providers
 async function loadProviders() {
   if (STATIC) {
-    $("#provider").hidden = true; $("#provider-label").hidden = true; $("#add-video").hidden = true;
-    $("#mode-banner").hidden = false;
-    $("#mode-banner").innerHTML = `Recorded demo (${esc(demo.model)}): replays real agent runs. ` +
-      (demo.repo_url ? `<a href="${esc(demo.repo_url)}" target="_blank" rel="noopener">Run it yourself</a>` : "");
+    $("#model-picker").hidden = true; $("#add-video").hidden = true; $("#usage").hidden = true; $("#intro").hidden = false;
+    const runs = Object.values(demo.runs).flat();
+    const models = [...new Set(runs.map((r) => r.events[0] && r.events[0].model).filter(Boolean))];
+    $("#intro-runs").textContent = `${runs.length} recorded run${runs.length === 1 ? "" : "s"} of ${models.join(", ") || demo.model}, replayed in your browser; no API calls`;
+    if (demo.repo_url) document.querySelectorAll(".repo-link").forEach((a) => { a.href = demo.repo_url; a.hidden = false; });
+    $("#ask-label").textContent = "Replay run";
+    $("#question").placeholder = "Pick a recorded question below";
     return;
   }
   state.providers = await api("/api/providers");
   const sel = $("#provider"), saved = store.get("provider");
-  sel.innerHTML = state.providers.map((p) => `<option value="${p.id}">${esc(p.label)}${p.ready ? "" : " (not set up)"}</option>`).join("");
+  sel.innerHTML = state.providers.map((p) => `<option value="${esc(p.id)}">${esc(p.label)}${p.ready ? "" : " (not set up)"}</option>`).join("");
   const first = state.providers.find((p) => p.id === saved) || state.providers.find((p) => p.ready) || state.providers[0];
   sel.value = first.id;
   showProviderHint();
@@ -198,20 +575,26 @@ function showProviderHint() {
   if (!p) return;
   const cap = p.limits.requests ? ` / ${p.limits.requests}` : "";
   const usd = p.today.cost_usd ? ` · $${p.today.cost_usd.toFixed(3)}${p.limits.usd ? " / $" + p.limits.usd : ""}` : "";
-  $("#usage").textContent = `today: ${p.today.requests}${cap} requests${usd}`;
+  $("#usage").textContent = `Today: ${p.today.requests}${cap} requests${usd}`;
 }
 $("#provider").addEventListener("change", () => { store.set("provider", $("#provider").value); showProviderHint(); });
 
 // ------------------------------------------------------------------- videos
+const prettyModel = (name) => String(name).split("/").pop().replace(/\.pt$/, "")
+  .replace(/^yolo/i, "YOLO").replace(/^siglip2-([a-z0-9]+).*/i, "SigLIP 2 $1").replace(/^siglip-([a-z0-9]+).*/i, "SigLIP $1");
+
 async function loadVideos(selectId) {
   state.videos = STATIC ? demo.videos : await api("/api/videos");
+  document.body.classList.toggle("no-library", !!STATIC && state.videos.length <= 1);
   $("#video-list").innerHTML = state.videos.map((v) => `
-    <li data-id="${v.id}">
-      <div class="name">${esc(v.name)}</div>
-      <div class="meta">${fmt(v.duration)} · ${v.has_subtitles ? "subtitles" : "no subtitles"}${v.available ? "" : " · file missing"}</div>
-    </li>`).join("") || `<li style="cursor:default;color:var(--muted)">No videos yet. Add one below.</li>`;
+    <li class="lib-item" data-id="${esc(v.id)}">
+      <span class="lib-thumb">${icon("film")}</span>
+      <span class="lib-text"><span class="lib-name">${esc(v.name)}</span>
+        <span class="lib-meta">${fmt(v.duration)} · ${v.has_subtitles ? "subtitles" : "no subtitles"}${v.available ? "" : " · file missing"}</span></span>
+    </li>`).join("") || `<li class="lib-empty">No videos yet. Add one below.</li>`;
   const target = state.videos.find((v) => v.id === selectId) || state.videos[0];
   if (target) selectVideo(target.id);
+  else resetRun();
 }
 $("#video-list").addEventListener("click", (e) => { const li = e.target.closest("li[data-id]"); if (li) selectVideo(li.dataset.id); });
 
@@ -219,18 +602,54 @@ async function selectVideo(id) {
   state.video = state.videos.find((v) => v.id === id);
   document.querySelectorAll("#video-list li").forEach((li) => li.classList.toggle("active", li.dataset.id === id));
   const v = state.video;
-  $("#player").src = STATIC ? v.url : `/api/videos/${id}/stream`;
-  $("#video-meta").textContent = `${v.name} · ${fmt(v.duration)} · indexed with ${v.tracker || "no tracker"} and ${v.embedder || "no embeddings"}`;
-  const qs = STATIC ? (demo.runs[id] || []).map((r) => ({ question: r.question, options: r.options }))
-                    : await api(`/api/videos/${id}/questions`);
-  $("#suggestions").innerHTML = qs.length
-    ? qs.map((q, i) => `<button class="chip" data-i="${i}">${esc(q.question)}</button>`).join("")
-    : `<span style="color:var(--muted);font-size:12px">No suggested questions for this video.</span>`;
-  $("#suggestions").onclick = (e) => {
-    const b = e.target.closest("button.chip"); if (!b) return;
-    const q = qs[+b.dataset.i]; $("#question").value = q.question; $("#options").value = q.options.join("\n");
-  };
+  $("#player").src = STATIC ? v.url : `/api/videos/${encodeURIComponent(id)}/stream`;
+  $("#video-name").textContent = v.name;
+  const chips = [
+    ["clock", fmt(v.duration), "Duration"],
+    ["captions", v.has_subtitles ? "Subtitles" : "No subtitles", "Subtitle track used for BM25 search"],
+    v.tracker && ["box", "Tracks: " + prettyModel(v.tracker), v.tracker],
+    v.embedder && ["layers", "Embeddings: " + prettyModel(v.embedder), v.embedder],
+  ].filter(Boolean);
+  $("#video-meta").innerHTML = chips.map(([ic, text, title]) => `<span class="chip" title="${esc(title)}">${icon(ic)}${esc(text)}</span>`).join("");
+  timeline.axis(v.duration);
+  resetRun();
+  const qs = STATIC ? (demo.runs[id] || []).map((r) => ({ question: r.question, options: r.options, run: r }))
+                    : await api(`/api/videos/${encodeURIComponent(id)}/questions`);
+  state.questions = qs;
+  renderSuggestions(qs);
+  if (STATIC && qs.length) fillQuestion(0);
 }
+
+function renderSuggestions(qs) {
+  $("#suggest-title").textContent = STATIC ? "Recorded questions" : "Suggested questions";
+  $("#suggest-count").textContent = qs.length ? `${qs.length}` : "";
+  $("#suggestions").innerHTML = qs.length ? qs.map((q, i) => {
+    const meta = [q.options.length ? `${q.options.length} options` : "open-ended"];
+    if (q.run) {
+      const fin = q.run.events[q.run.events.length - 1];
+      if (fin.budget) meta.push(`${fin.budget.tool_calls} tool calls`);
+      if (fin.latency_s) meta.push(`${Math.round(fin.latency_s)} s`);
+      if (fin.correct === true) meta.push(badge("ok", "check", "correct"));
+      if (fin.correct === false) meta.push(badge("err", "x", "wrong"));
+    }
+    return `<button type="button" class="qcard" data-i="${i}">
+      <span class="q-icon">${icon(STATIC ? "play" : "spark")}</span>
+      <span class="q-text"><span class="q-title">${esc(q.question)}</span>
+        <span class="q-meta">${meta.join('<span class="sep">·</span>')}</span></span>
+    </button>`;
+  }).join("") : `<p class="muted-note">No suggested questions for this video.</p>`;
+}
+function fillQuestion(i) {
+  const q = state.questions[i]; if (!q) return;
+  $("#question").value = q.question; $("#options").value = q.options.join("\n");
+  for (const ta of [$("#question"), $("#options")]) { ta.style.height = "auto"; ta.style.height = ta.scrollHeight + 2 + "px"; }
+  document.querySelectorAll(".qcard").forEach((b) => b.classList.toggle("active", +b.dataset.i === i));
+}
+$("#suggestions").addEventListener("click", (e) => {
+  const b = e.target.closest(".qcard"); if (!b) return;
+  fillQuestion(+b.dataset.i);
+  if (STATIC) ask();  // the demo has nothing to configure: one click replays the run
+});
 
 // ------------------------------------------------------------- add a video
 function followIndexJob(jobId, videoId) {
@@ -262,91 +681,164 @@ $("#path-form").addEventListener("submit", async (e) => {
   } catch (err) { $("#index-log").textContent = "ERROR: " + err.message; }
 });
 
-// ---------------------------------------------------------------- ask
-function argsText(input) {
-  return Object.entries(input || {}).map(([k, v]) => `${k}: ${JSON.stringify(v)}`).join(", ");
+// ---------------------------------------------------------------- results
+const setStatus = (html) => { $("#ask-status").innerHTML = html; };
+const idleStatus = () => setStatus('<span class="kbd">Ctrl + Enter</span>');
+const emptyState = () => `<div class="empty-state"><div class="es-icon">${icon(STATIC ? "play" : "spark")}</div>` +
+  (STATIC ? "<b>Replay a recorded run</b>Pick a question to watch the agent search, look and verify, step by step."
+          : "<b>Ask a question</b>The answer, the evidence behind it and every step the agent took appear here.") + "</div>";
+
+function stopReplay() {
+  clearTimeout(state.replay); state.replay = null; state.skip = null;
+  if (STATIC && state.running) { state.running = false; $("#ask-btn").disabled = false; idleStatus(); }
 }
+function resetRun() {
+  stopReplay();
+  state.runId++; state.steps = 0; state.toolCalls = 0; state.budget = null;
+  $("#trace").innerHTML = ""; $("#trace-count").textContent = "";
+  timeline.reset();
+  $("#answer").innerHTML = emptyState();
+}
+
+function callHtml(c) {
+  const rank = (k) => (ARG_ORDER.includes(k) ? ARG_ORDER.indexOf(k) : 99);
+  const entries = Object.entries(c.input || {})
+    .filter(([k]) => c.name !== "submit_answer" || k === "answer" || k === "confidence")  // the rest shows up in the answer card
+    .sort(([a], [b]) => rank(a) - rank(b));
+  const args = entries.map(([k, v]) => `<span class="k">${esc(k)}=</span>${esc(short(JSON.stringify(v), 160))}`).join('<span class="k">, </span>');
+  return `<div class="call"><span class="fn">${esc(c.name)}</span>(${args})</div>`;
+}
+function working(detail) {
+  $("#answer").innerHTML = `<div class="working"><span class="spinner lg"></span><div><b>Investigating…</b><span>${esc(detail)}</span></div></div>`;
+}
+
 function renderStep(step) {
-  const li = document.createElement("li");
+  const n = ++state.steps;
+  let kind = "", ic = "wrench", title = "", meta = `#${n}`, extra = "", body = "";
   if (step.node === "agent") {
-    li.className = "step agent";
-    li.innerHTML = `<div class="label">Agent</div>${step.text ? `<p>${esc(step.text)}</p>` : ""}` +
-      (step.tool_calls || []).map((c) => `<div class="call">→ ${esc(c.name)}(${esc(argsText(c.input)).slice(0, 400)})</div>`).join("");
+    kind = "agent"; ic = "spark"; title = "Planner";
+    body = (step.text ? `<p>${esc(step.text)}</p>` : "") + (step.tool_calls || []).map(callHtml).join("");
   } else if (step.node === "tools") {
-    li.className = "step tool" + (step.is_error ? " error" : "");
+    state.toolCalls++;
+    kind = "tool" + (step.is_error ? " error" : ""); ic = TOOL_ICONS[step.name] || "wrench";
+    title = `<span class="mono">${esc(step.name)}</span>`; meta = `${(step.latency_s || 0).toFixed(1)} s`;
+    if (step.is_error) extra = badge("err", "", "error");
     const first = (step.result || "").split("\n")[0];
-    li.innerHTML = `<div class="label">${esc(step.name)} · ${step.latency_s.toFixed(1)} s ${step.is_error ? '<span class="badge err">error</span>' : ""}</div>
-      <details class="result"${step.name === "inspect_clip" || step.is_error ? " open" : ""}><summary>${esc(first.slice(0, 120))}</summary><pre>${linkTimes(step.result)}</pre></details>`;
+    const open = step.name === "inspect_clip" || step.is_error;
+    body = `<details class="result"${open ? " open" : ""}><summary><span>${esc(first)}</span></summary><pre>${linkTimes(step.result)}</pre></details>`;
+    markFromTool(step);
+    if (state.running) working(`${state.toolCalls}${state.budget ? " / " + state.budget.tool_calls : ""} tool calls · last: ${step.name}`);
   } else if (step.node === "verify") {
+    kind = "verify"; ic = "shield"; title = "Verifier";
     if (step.verdict) {
       const v = step.verdict;
-      li.className = "step verify" + (step.accepted ? "" : " rejected");
-      li.innerHTML = `<div class="label">Verifier ${step.accepted ? '<span class="badge ok">accepted</span>' : '<span class="badge warn">not accepted</span>'} confidence ${v.confidence.toFixed(2)}</div>` +
-        (v.issues ? `<p>${esc(v.issues)}</p>` : "") + (!step.accepted && v.next_step ? `<p style="color:var(--muted)">Next: ${esc(v.next_step)}</p>` : "");
+      if (!step.accepted) kind += " rejected";
+      extra = step.accepted ? badge("ok", "check", "accepted") : badge("warn", "", "sent back");
+      meta = `conf ${(v.confidence ?? 0).toFixed(2)}`;
+      body = (v.issues ? `<p>${esc(v.issues)}</p>` : "") + (!step.accepted && v.next_step ? `<p class="muted">Next: ${esc(v.next_step)}</p>` : "");
     } else {
-      li.className = "step verify";
-      li.innerHTML = `<div class="label">Verifier</div><p>${esc(step.error || (step.skipped ? "skipped" : ""))}</p>`;
+      body = `<p>${esc(step.error || (step.skipped ? "skipped" : ""))}</p>`;
     }
   } else {
-    li.className = "step";
-    li.innerHTML = `<div class="label">${step.node === "nudge" ? "Reminder sent to the agent" : "Budget used up: answering from the evidence gathered"}</div>`;
+    kind = "notice"; ic = "alert";
+    title = step.node === "nudge" ? "Reminder sent to the agent" : "Budget used up";
+    body = step.node === "nudge" ? "" : "<p>Answering from the evidence gathered so far.</p>";
   }
+  const li = document.createElement("li");
+  li.className = "step " + kind;
+  li.innerHTML = `<div class="step-icon">${icon(ic)}</div><div class="step-body">
+    <div class="step-head"><span class="step-title${title.startsWith("<span") ? " mono" : ""}">${title}</span>${extra}<span class="step-meta">${meta}</span></div>${body}</div>`;
   $("#trace").appendChild(li);
-  li.scrollIntoView({ block: "nearest" });
+  $("#trace-count").textContent = `${n} step${n === 1 ? "" : "s"}`;
+  const box = $("#results");  // keep the newest step in view by scrolling the card, never the page
+  if (!narrow() && box.scrollHeight > box.clientHeight) box.scrollTo({ top: box.scrollHeight, behavior: "smooth" });
 }
 
 function renderFinal(ev) {
-  const f = ev.final || {};
-  const opt = state.options.find((o) => o.trim().toUpperCase().startsWith((f.answer || "") + "."));
-  let status = f.forced ? '<span class="badge warn">forced answer</span>'
-    : f.accepted ? '<span class="badge ok">verified</span>' : '<span class="badge warn">low confidence</span>';
-  if (ev.gold) status += ev.correct ? ` <span class="badge ok">correct (gold ${esc(ev.gold)})</span>`
-                                    : ` <span class="badge err">wrong (gold ${esc(ev.gold)})</span>`;
-  const evidence = (f.evidence || []).map((e) => `<div><button class="ts" data-t="${e.t_start}">${fmt(e.t_start)}–${fmt(e.t_end)}</button><span>${esc(e.observation)}</span></div>`).join("");
-  const secs = (ev.latency_s ?? (Date.now() - state.started) / 1000).toFixed(1);
-  const u = ev.usage || {};
-  $("#answer").className = "answer";
+  const f = ev.final || {}, u = ev.usage || {}, used = ev.budget || {}, cap = state.budget || {};
+  const letter = /^[A-Za-z]$/.test(f.answer || "") ? f.answer.toUpperCase() : null;
+  const opt = letter && state.options.find((o) => new RegExp(`^\\s*${letter}[.)]`, "i").test(o));
+  const text = opt ? opt.replace(/^\s*[A-Za-z][.)]\s*/, "") : letter ? "" : f.answer;
+  const status = [f.forced ? badge("warn", "alert", "forced answer") : f.accepted ? badge("ok", "shield", "verified") : badge("warn", "alert", "low confidence")];
+  if (ev.gold) status.push(ev.correct ? badge("ok", "check", `correct · gold ${ev.gold}`) : badge("err", "x", `wrong · gold ${ev.gold}`));
+  const evidence = (f.evidence || []).map((e) => {
+    timeline.add("evidence", e.t_start, e.t_end, "evidence");
+    return `<div class="ev-row"><button type="button" class="ts" data-seek="${+e.t_start}">${fmt(e.t_start)}–${fmt(e.t_end)}</button><span>${esc(e.observation)}</span></div>`;
+  }).join("");
+  const secs = ev.latency_s ?? (Date.now() - state.started) / 1000;
+  const tokens = (u.input_tokens || 0) + (u.output_tokens || 0);
+  const metric = (label, value, of, title) => `<div class="metric"${title ? ` title="${esc(title)}"` : ""}><span>${label}</span><b>${value}${of != null ? `<small> / ${of}</small>` : ""}</b></div>`;
+  const pct = (x) => Math.round(Math.max(0, Math.min(1, x || 0)) * 100);
   $("#answer").innerHTML = `
-    <div class="main"><span class="letter">${esc(f.answer)}</span><span>${esc(opt ? opt.replace(/^\s*[A-Za-z][.)]\s*/, "") : "")}</span></div>
-    <div class="badges">${status}</div>
-    <div class="conf">Verifier <div class="bar"><i style="width:${Math.round((f.confidence || 0) * 100)}%"></i></div>${(f.confidence ?? 0).toFixed(2)}</div>
-    <div class="conf">Agent's own <div class="bar"><i style="width:${Math.round((f.self_confidence || 0) * 100)}%;opacity:.5"></i></div>${(f.self_confidence ?? 0).toFixed(2)}</div>
-    <p class="rationale">${esc(f.rationale)}</p>
-    ${evidence ? `<h2>Evidence (click to jump)</h2><div class="evidence">${evidence}</div>` : ""}
-    <div class="usage">${ev.budget.tool_calls} tool calls · ${ev.budget.frames} frames inspected · ${u.calls} model calls · ${(u.input_tokens || 0).toLocaleString()} in / ${(u.output_tokens || 0).toLocaleString()} out tokens · $${(u.cost_usd || 0).toFixed(4)} · ${secs} s</div>`;
+    <div class="answer-head"><span class="eyebrow">Answer</span><div class="badges">${status.join("")}</div></div>
+    <div class="answer-main">${letter ? `<span class="letter">${esc(letter)}</span>` : ""}<span class="answer-text">${esc(text)}</span></div>
+    <div class="meters">
+      <div class="meter"><span>Verifier</span><div class="bar"><i data-w="${pct(f.confidence)}"></i></div><b>${(f.confidence ?? 0).toFixed(2)}</b></div>
+      <div class="meter"><span>Agent's own</span><div class="bar soft"><i data-w="${pct(f.self_confidence)}"></i></div><b>${(f.self_confidence ?? 0).toFixed(2)}</b></div>
+    </div>
+    ${f.rationale ? `<p class="rationale">${esc(f.rationale)}</p>` : ""}
+    ${evidence ? `<div class="ev-list"><span class="eyebrow">Evidence · click a time to jump</span>${evidence}</div>` : ""}
+    <div class="metrics">
+      ${metric("Tool calls", used.tool_calls ?? 0, cap.tool_calls)}
+      ${metric("Frames seen", used.frames ?? 0, cap.frames)}
+      ${metric("Model calls", u.calls ?? "–")}
+      ${metric("Tokens", compact(tokens), null, `${(u.input_tokens || 0).toLocaleString()} in / ${(u.output_tokens || 0).toLocaleString()} out`)}
+      ${metric("Latency", secs.toFixed(1) + " s")}
+      ${u.cost_usd ? metric("Cost", "$" + u.cost_usd.toFixed(4)) : ""}
+    </div>`;
+  if (!narrow()) $("#results").scrollTo({ top: 0, behavior: "smooth" });  // the answer sits above the trace
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    document.querySelectorAll("#answer .bar i").forEach((i) => { i.style.width = i.dataset.w + "%"; });
+  }));
 }
 
-function renderError(message) {
-  $("#answer").className = "answer error";
+function renderError(message, title = "Something went wrong", tone = "") {
   const hint = /API_KEY/.test(message) ? "<p>Open the .env file in the project folder, paste your key after the matching name, save, and restart VideoScout.</p>" : "";
-  $("#answer").innerHTML = `<strong>Something went wrong</strong><p>${esc(message)}</p>${hint}`;
+  $("#answer").innerHTML = `<div class="alert ${tone}">${icon(tone === "info" ? "info" : "alert")}<div><b>${esc(title)}</b><p>${esc(message)}</p>${hint}</div></div>`;
 }
 
-$("#ask-form").addEventListener("submit", async (e) => {
-  e.preventDefault();
+// ---------------------------------------------------------------- ask
+async function ask() {
+  if (STATIC) stopReplay();  // picking another recorded question interrupts the current replay
   if (!state.video || state.running) return;
+  const question = $("#question").value.trim();
+  if (!question) { $("#question").focus(); return; }
   state.options = $("#options").value.split("\n").map((s) => s.trim()).filter(Boolean);
-  const body = { video_id: state.video.id, question: $("#question").value.trim(), options: state.options, provider: $("#provider").value };
+  resetRun();
+  const runId = state.runId;
   state.running = true; state.started = Date.now();
-  $("#ask-btn").disabled = true; $("#trace").innerHTML = "";
-  $("#answer").className = "answer empty"; $("#answer").textContent = "Working...";
-  $("#ask-status").innerHTML = '<span class="spinner"></span> the agent is investigating';
-  const done = () => { state.running = false; $("#ask-btn").disabled = false; $("#ask-status").textContent = ""; };
+  $("#ask-btn").disabled = true;
+  working("Starting the agent");
+  if (narrow()) $("#results").scrollIntoView({ behavior: "smooth", block: "start" });
+  const done = () => { if (runId === state.runId) { state.running = false; $("#ask-btn").disabled = false; idleStatus(); } };
   const handle = (ev) => {
-    if (ev.type === "start") $("#ask-status").innerHTML = `<span class="spinner"></span> ${esc(ev.model)} is investigating (budget: ${ev.budget.tool_calls} tool calls, ${ev.budget.frames} frames)`;
+    if (runId !== state.runId) return;  // the user moved on to another video or question
+    if (ev.type === "start") {
+      state.budget = ev.budget;
+      working(`${ev.model} · budget ${ev.budget.tool_calls} tool calls, ${ev.budget.frames} frames`);
+      setStatus(`<span class="spinner"></span>${esc(ev.model)} is investigating` +
+        (STATIC ? ` <button type="button" class="btn small" id="skip-btn">${icon("skip")}Skip to answer</button>` : ""));
+    }
     if (ev.type === "step") renderStep(ev.step);
     if (ev.type === "final") renderFinal(ev);
     if (ev.type === "error") renderError(ev.message);
   };
+  const body = { video_id: state.video.id, question, options: state.options, provider: $("#provider").value };
   if (STATIC) {
-    const run = (demo.runs[state.video.id] || []).find((r) => r.question === body.question);
-    if (!run) { renderError("This public demo replays recorded runs only. Pick one of the suggested questions, or run VideoScout on your own machine to ask anything."); done(); return; }
+    const run = (demo.runs[state.video.id] || []).find((r) => r.question === question);
+    if (!run) {
+      renderError("This public demo replays recorded runs only. Pick one of the recorded questions, or run VideoScout on your own machine (a free Gemini key is enough) to ask anything.",
+                  "Custom questions need a local install", "info");
+      done(); return;
+    }
     let i = 0;
     const next = () => {  // replay the recorded events at a readable pace
-      if (i >= run.events.length) { done(); return; }
+      if (runId !== state.runId) return;
+      if (i >= run.events.length) { state.skip = null; done(); return; }
       const ev = run.events[i++]; handle(ev);
-      setTimeout(next, ev.type === "step" ? 900 : 300);
+      state.replay = setTimeout(next, ev.type === "step" ? 750 : 300);
     };
+    state.skip = () => { clearTimeout(state.replay); while (i < run.events.length) handle(run.events[i++]); state.skip = null; done(); };
     next();
     return;
   }
@@ -354,10 +846,12 @@ $("#ask-form").addEventListener("submit", async (e) => {
     const r = await api("/api/ask", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     const es = new EventSource(`/api/jobs/${r.job_id}/events`);
     es.onmessage = (m) => handle(JSON.parse(m.data));
-    es.addEventListener("end", () => { es.close(); done(); loadProviders(); });  // refresh today's usage
-    es.onerror = () => { if (es.readyState === EventSource.CLOSED) done(); };
+    es.addEventListener("end", () => { es.close(); state.running = false; $("#ask-btn").disabled = false; idleStatus(); loadProviders(); });  // refresh today's usage
+    es.onerror = () => { if (es.readyState === EventSource.CLOSED) { state.running = false; $("#ask-btn").disabled = false; idleStatus(); } };
   } catch (err) { renderError(err.message); done(); }
-});
+}
+$("#ask-form").addEventListener("submit", (e) => { e.preventDefault(); ask(); });
+$("#ask-form").addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); ask(); } });
 
 (async () => {
   // Revalidate on every load (cheap ETag check) so a redeployed demo shows up at once.
